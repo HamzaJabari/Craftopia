@@ -1,167 +1,123 @@
 const express = require('express');
 const router = express.Router();
-const Artisan = require('../models/ArtisanModel'); 
-const bcrypt = require('bcryptjs'); 
-const generateToken = require('../utils/generateToken'); 
-const { protectArtisan } = require('../middleware/authMiddleware'); // <-- NEW: Middleware for protecting routes
-
+const Artisan = require('../models/ArtisanModel');
+const bcrypt = require('bcryptjs');
+const generateToken = require('../utils/generateToken');
+const { protectArtisan } = require('../middleware/authMiddleware');
 
 // =======================================================
-// 1. REGISTER NEW ARTISAN (Create)
-// Method: POST /api/artisans
-// Access: Public
+// 1. SIGNUP (Requirement 2.2.1 / Table 6)
+// Method: POST /api/artisans/signup
 // =======================================================
-router.post('/', async (req, res) => {
+router.post('/signup', async (req, res) => {
   try {
-    const { name, email, password, craftType, location } = req.body;
+    const { name, email, password, phone_number, craftType, description, location } = req.body;
 
-    // 1. Basic Validation
-    if (!name || !email || !password || !craftType || !location) {
-      return res.status(400).json({ message: 'Please enter all required fields.' });
-    }
-
-    // 2. Check if the artisan already exists
+    // Check if artisan already exists [cite: 279]
     const artisanExists = await Artisan.findOne({ email });
     if (artisanExists) {
-      return res.status(400).json({ message: 'Artisan with that email already exists.' });
+      return res.status(400).json({ message: 'Artisan already exists with this email' });
     }
 
-    // 3. Hash the password
+    // Hash the password for security 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 4. Create and save the new Artisan document
-    const artisan = new Artisan({
+    // Create the artisan record [cite: 543, 544]
+    const artisan = await Artisan.create({
       name,
       email,
       password: hashedPassword,
-      craftType,
+      phone_number,
+      craftType, // Ensure this matches your model field
+      description,
       location,
-    });
-    const createdArtisan = await artisan.save();
-    
-    // 5. Send success response back with token
-    res.status(201).json({
-      _id: createdArtisan._id,
-      name: createdArtisan.name,
-      email: createdArtisan.email,
-      craftType: createdArtisan.craftType,
-      location: createdArtisan.location,
-      token: generateToken(createdArtisan._id), 
-      message: 'Artisan registered successfully!'
+      register_date: new Date() // [cite: 541]
     });
 
+    if (artisan) {
+      res.status(201).json({
+        _id: artisan._id,
+        name: artisan.name,
+        role: 'artisan', // Helps frontend handle redirection
+        token: generateToken(artisan._id)
+      });
+    }
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error during registration.' });
+    // Returning the specific error message to help you debug in Postman
+    res.status(500).json({ message: error.message || 'Signup failed' });
   }
 });
 
-
 // =======================================================
-// 2. AUTHENTICATE ARTISAN (Login)
+// 2. LOGIN (Table 7)
 // Method: POST /api/artisans/login
-// Access: Public
 // =======================================================
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-
   try {
-    // 1. Find the artisan by email
+    const { email, password } = req.body;
+
+    // Find artisan by email [cite: 282]
     const artisan = await Artisan.findOne({ email });
 
-    // 2. Check if artisan exists AND password matches
+    // Compare entered password with hashed password [cite: 282]
     if (artisan && (await bcrypt.compare(password, artisan.password))) {
-      
-      // 3. Successful Login
       res.json({
         _id: artisan._id,
         name: artisan.name,
-        email: artisan.email,
-        craftType: artisan.craftType,
-        token: generateToken(artisan._id),
+        role: 'artisan',
+        token: generateToken(artisan._id)
       });
     } else {
-      // 4. Failed Login
-      res.status(401).json({ message: 'Invalid email or password.' });
+      res.status(401).json({ message: 'Invalid email or password' });
     }
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error during login.' });
+    res.status(500).json({ message: 'Login failed' });
   }
 });
 
-
 // =======================================================
-// 3. GET ALL ARTISANS (Read)
-// Method: GET /api/artisans
-// Access: Public
+// 3. GET CURRENT PROFILE (Table 17 / Requirement 2.2.2)
+// Method: GET /api/artisans/profile
 // =======================================================
-router.get('/', async (req, res) => {
+router.get('/profile', protectArtisan, async (req, res) => {
   try {
-    // Select all artisans but exclude the password field
-    const artisans = await Artisan.find({}).select('-password'); 
-    res.json(artisans);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-
-// =======================================================
-// 4. GET SINGLE ARTISAN (Read)
-// Method: GET /api/artisans/:id
-// Access: Public
-// =======================================================
-router.get('/:id', async (req, res) => {
-  try {
-    // Find artisan by ID and exclude the password field
-    const artisan = await Artisan.findById(req.params.id).select('-password'); 
-
+    // req.artisan is populated by the authMiddleware [cite: 197]
+    const artisan = await Artisan.findById(req.artisan._id).select('-password');
     if (artisan) {
       res.json(artisan);
     } else {
-      res.status(404).json({ message: 'Artisan not found.' });
+      res.status(404).json({ message: 'Artisan not found' });
     }
   } catch (error) {
-    res.status(404).json({ message: 'Invalid Artisan ID.' });
+    res.status(500).json({ message: 'Error fetching profile' });
   }
 });
 
-
 // =======================================================
-// 5. UPDATE ARTISAN PROFILE (Update)
-// Method: PUT /api/artisans/profile
-// Access: Private (Protected by the 'protect' middleware)
+// 4. SEARCH & DISCOVERY (Requirement 2.2.3 / Table 9)
+// Method: GET /api/artisans
 // =======================================================
-router.put('/profile', protectArtisan, async (req, res) => {
-  // req.artisan is attached by the 'protect' middleware, containing the logged-in artisan's data
-  const artisan = req.artisan; 
+router.get('/', async (req, res) => {
+  try {
+    const { craftType, location } = req.query;
+    let query = {};
 
-  if (artisan) {
-    // Update fields only if they are provided in the request body
-    artisan.name = req.body.name || artisan.name;
-    artisan.email = req.body.email || artisan.email;
-    artisan.craftType = req.body.craftType || artisan.craftType;
-    artisan.location = req.body.location || artisan.location;
-    artisan.description = req.body.description || artisan.description;
-    // Note: PortfolioImages update would involve file upload logic, but for simple text fields, this is sufficient.
+    // Filter by craft type if provided (e.g., Carpentry) [cite: 149, 287]
+    if (craftType) {
+      query.craftType = craftType;
+    }
 
-    const updatedArtisan = await artisan.save();
+    // Filter by location if provided [cite: 149, 287]
+    if (location) {
+      query.location = { $regex: location, $options: 'i' }; // Case-insensitive search
+    }
 
-    res.json({
-      _id: updatedArtisan._id,
-      name: updatedArtisan.name,
-      email: updatedArtisan.email,
-      craftType: updatedArtisan.craftType,
-      location: updatedArtisan.location,
-      description: updatedArtisan.description,
-    });
-  } else {
-    // This case should be handled by the 'protect' middleware, but is included for safety
-    res.status(404).json({ message: 'Artisan not found.' }); 
+    const artisans = await Artisan.find(query).select('-password');
+    res.json(artisans);
+  } catch (error) {
+    res.status(500).json({ message: 'Error searching artisans' });
   }
 });
-
 
 module.exports = router;
