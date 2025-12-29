@@ -38,9 +38,13 @@ router.post('/signup', async (req, res) => {
     if (artisan) {
       res.status(201).json({
         _id: artisan._id,
-        name: artisan.name,
-        role: 'artisan', // Helps frontend handle redirection
-        token: generateToken(artisan._id)
+    name: artisan.name,
+    email: artisan.email,         // Added
+    phone_number: artisan.phone_number, // Added - This ensures it shows in Postman
+    craftType: artisan.craftType, // Added
+    location: artisan.location,   // Added
+    role: 'artisan',
+    token: generateToken(artisan._id)
       });
     }
   } catch (error) {

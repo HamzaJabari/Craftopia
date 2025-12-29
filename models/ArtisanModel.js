@@ -12,15 +12,19 @@ const ArtisanSchema = new mongoose.Schema({
     required: true,
     unique: true, 
     lowercase: true,
+    
   },
+  phone_number: { 
+    type: String
+   },
   password: { 
     type: String,
     required: true,
   },
   craftType: {
     type: String,
-    required: true,
-    enum: ['Tailoring', 'Carpentry', 'Embroidery', 'Pottery', 'Other'], 
+  required: true,
+  enum: ['Tailoring', 'Carpentry', 'Embroidery', 'Pottery', 'Blacksmith', 'Painter', 'Other'],
   },
   location: {
     type: String,
