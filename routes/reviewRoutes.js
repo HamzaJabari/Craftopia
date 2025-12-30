@@ -51,5 +51,20 @@ router.get('/:artisanId', async (req, res) => {
       res.status(500).json({ message: 'Error fetching reviews' });
     }
 });
+// =======================================================
+// GET REVIEWS FOR A SPECIFIC ARTISAN
+// Method: GET /api/reviews/artisan/:artisanId
+// =======================================================
+router.get('/artisan/:artisanId', async (req, res) => {
+  try {
+    const reviews = await Review.find({ artisan: req.params.artisanId })
+      .populate('customer', 'name') // Shows who wrote the review
+      .sort({ createdAt: -1 }); // Newest reviews first
+
+    res.json(reviews);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching reviews' });
+  }
+});
 
 module.exports = router;
