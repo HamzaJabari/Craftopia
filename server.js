@@ -12,6 +12,7 @@ const availabilityRoutes = require('./routes/availabilityRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 
+
 const app = express();
 
 // Connect to Database
