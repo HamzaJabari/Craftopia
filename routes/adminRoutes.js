@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const generateToken = require('../utils/generateToken');
+const upload = require('../middleware/uploadMiddleware');
 
 // Models
 const Admin = require('../models/AdminModel');
