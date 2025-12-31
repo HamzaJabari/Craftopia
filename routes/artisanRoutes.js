@@ -123,5 +123,45 @@ router.get('/', async (req, res) => {
     res.status(500).json({ message: 'Error searching artisans' });
   }
 });
+// =======================================================
+// UPDATE ARTISAN PROFILE
+// Method: PUT /api/artisans/profile
+// =======================================================
+router.put('/profile', protectArtisan, async (req, res) => {
+  try {
+    const artisan = await Artisan.findById(req.artisan._id);
+
+    if (artisan) {
+      // Update fields if they are provided in the request body
+      artisan.name = req.body.name || artisan.name;
+      artisan.phone_number = req.body.phone_number || artisan.phone_number;
+      artisan.craftType = req.body.craftType || artisan.craftType;
+      artisan.location = req.body.location || artisan.location;
+      artisan.description = req.body.description || artisan.description;
+
+      // Handle password update separately if needed
+      if (req.body.password) {
+        const salt = await bcrypt.genSalt(10);
+        artisan.password = await bcrypt.hash(req.body.password, salt);
+      }
+
+      const updatedArtisan = await artisan.save();
+      res.json({
+        _id: updatedArtisan._id,
+        name: updatedArtisan.name,
+        email: updatedArtisan.email,
+        phone_number: updatedArtisan.phone_number,
+        craftType: updatedArtisan.craftType,
+        location: updatedArtisan.location,
+        description: updatedArtisan.description,
+        role: 'artisan'
+      });
+    } else {
+      res.status(404).json({ message: 'Artisan not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Profile update failed' });
+  }
+});
 
 module.exports = router;

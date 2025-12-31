@@ -60,5 +60,37 @@ router.get('/profile', protectCustomer, async (req, res) => {
     res.status(404).json({ message: 'Customer not found' });
   }
 });
+// =======================================================
+// UPDATE CUSTOMER PROFILE
+// Method: PUT /api/customers/profile
+// =======================================================
+router.put('/profile', protectCustomer, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.customer._id);
+
+    if (customer) {
+      customer.name = req.body.name || customer.name;
+      customer.phone_number = req.body.phone_number || customer.phone_number;
+
+      if (req.body.password) {
+        const salt = await bcrypt.genSalt(10);
+        customer.password = await bcrypt.hash(req.body.password, salt);
+      }
+
+      const updatedCustomer = await customer.save();
+      res.json({
+        _id: updatedCustomer._id,
+        name: updatedCustomer.name,
+        email: updatedCustomer.email,
+        phone_number: updatedCustomer.phone_number,
+        role: 'customer'
+      });
+    } else {
+      res.status(404).json({ message: 'Customer not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Profile update failed' });
+  }
+});
 
 module.exports = router;
