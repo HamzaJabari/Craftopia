@@ -33,7 +33,29 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ message: 'Server error during admin login.' });
   }
 });
+router.post('/profile-picture', protectArtisan, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Please upload an image' });
 
+    const artisan = await Artisan.findById(req.artisan._id);
+    
+    // Optional: Delete the old profile picture file from the server to save space
+    if (artisan.profilePicture && artisan.profilePicture !== '/uploads/default-avatar.png') {
+      const oldPath = path.join(__dirname, '..', artisan.profilePicture);
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    artisan.profilePicture = `/uploads/${req.file.filename}`;
+    await artisan.save();
+
+    res.json({ 
+      message: 'Profile picture updated', 
+      profilePicture: artisan.profilePicture 
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Upload failed' });
+  }
+});
 // =======================================================
 // 2. GET SYSTEM STATS (Table 27)
 // Method: GET /api/admin/stats

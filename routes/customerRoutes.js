@@ -50,6 +50,23 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ message: 'Login failed' });
   }
 });
+router.post('/profile-picture', protectCustomer, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Please upload an image' });
+
+    const customer = await Customer.findById(req.customer._id);
+    
+    customer.profilePicture = `/uploads/${req.file.filename}`;
+    await customer.save();
+
+    res.json({ 
+      message: 'Profile picture updated', 
+      profilePicture: customer.profilePicture 
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Upload failed' });
+  }
+});
 
 // 3. GET CURRENT PROFILE (Table 2/8)
 router.get('/profile', protectCustomer, async (req, res) => {

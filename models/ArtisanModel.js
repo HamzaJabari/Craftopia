@@ -23,7 +23,7 @@ const ArtisanSchema = new mongoose.Schema({
   },
   craftType: {
     type: String,
-  required: true,
+  required: true, 
   enum: ['Tailoring', 'Carpentry', 'Embroidery', 'Pottery', 'Blacksmith', 'Painter', 'Other'],
   },
   location: {
@@ -34,6 +34,11 @@ const ArtisanSchema = new mongoose.Schema({
     type: String,
     maxlength: 500,
   },
+  
+  profilePicture: {
+  type: String,
+  default: '/uploads/default-avatar.png' // Optional: a default image
+},
   portfolioImages: [
     {
       type: String,
@@ -43,6 +48,7 @@ const ArtisanSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   }
+  
 }, {
   timestamps: true,
 });

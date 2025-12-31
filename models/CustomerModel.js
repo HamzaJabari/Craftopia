@@ -18,6 +18,10 @@ const CustomerSchema = new mongoose.Schema({
   phone_number: { 
     type: String 
   },
+  profilePicture: {
+  type: String,
+  default: '/uploads/default-avatar.png' // Optional: a default image
+},
   register_date: { 
     type: Date, 
     default: Date.now 

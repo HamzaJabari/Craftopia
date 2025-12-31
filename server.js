@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const connectDB = require('./config/db');
+const path = require('path');
 
 // Import Routes
 const artisanRoutes = require('./routes/artisanRoutes');
@@ -11,6 +12,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const availabilityRoutes = require('./routes/availabilityRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+
 
 
 const app = express();
