@@ -1,12 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const Review = require('../models/ReviewModel');
-const Artisan = require('../models/ArtisanModel');
 const Notification = require('../models/NotificationModel');
 const { protectCustomer } = require('../middleware/authMiddleware');
 
 // =======================================================
-// CREATE A REVIEW (Table 15)
+// 1. POST A REVIEW (Customer)
 // Method: POST /api/reviews
 // =======================================================
 router.post('/', protectCustomer, async (req, res) => {
@@ -20,46 +19,29 @@ router.post('/', protectCustomer, async (req, res) => {
       comment
     });
 
-    // 1. Update the Artisan's Average Rating automatically (Table 2.2.5)
-    const reviews = await Review.find({ artisan: artisanId });
-    const avgRating = reviews.reduce((acc, item) => item.stars_number + acc, 0) / reviews.length;
-    
-    await Artisan.findByIdAndUpdate(artisanId, { averageRating: avgRating });
-
-    // 2. 🔔 NOTIFICATION: Alert the Artisan of the new review (Table 21/22)
+    // TRIGGER NOTIFICATION for the Artisan
     await Notification.create({
       recipient: artisanId,
-      recipientModel: 'Artisan',
-      message: `You received a new ${stars_number}-star review from ${req.customer.name}`,
-      type: 'Review'
+      sender: req.customer._id,
+      message: `You received a new ${stars_number}-star review from ${req.customer.name}!`,
+      type: 'review'
     });
 
     res.status(201).json(review);
   } catch (error) {
-    res.status(500).json({ message: 'Error submitting review' });
+    res.status(500).json({ message: 'Failed to post review' });
   }
 });
 
-// GET REVIEWS FOR SPECIFIC ARTISAN
-router.get('/:artisanId', async (req, res) => {
-    try {
-      const reviews = await Review.find({ artisan: req.params.artisanId })
-        .populate('customer', 'name')
-        .sort({ createdAt: -1 });
-      res.json(reviews);
-    } catch (error) {
-      res.status(500).json({ message: 'Error fetching reviews' });
-    }
-});
 // =======================================================
-// GET REVIEWS FOR A SPECIFIC ARTISAN
+// 2. GET REVIEWS FOR A SPECIFIC ARTISAN (Public)
 // Method: GET /api/reviews/artisan/:artisanId
 // =======================================================
 router.get('/artisan/:artisanId', async (req, res) => {
   try {
     const reviews = await Review.find({ artisan: req.params.artisanId })
-      .populate('customer', 'name') // Shows who wrote the review
-      .sort({ createdAt: -1 }); // Newest reviews first
+      .populate('customer', 'name profilePicture') // Show who reviewed
+      .sort({ createdAt: -1 });
 
     res.json(reviews);
   } catch (error) {
