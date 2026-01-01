@@ -1,17 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const Reservation = require('../models/ReservationModel');
-const Notification = require('../models/NotificationModel');
+const Notification = require('../models/NotificationModel'); // Make sure this import is here!
 const { protectCustomer, protectArtisan } = require('../middleware/authMiddleware');
 
 // =======================================================
 // 1. CREATE A RESERVATION (Customer)
-// Method: POST /api/reservations
 // =======================================================
 router.post('/', protectCustomer, async (req, res) => {
   try {
     const { artisanId, description, start_date, total_price } = req.body;
 
+    // Create the Reservation
     const reservation = await Reservation.create({
       customer: req.customer._id,
       artisan: artisanId,
@@ -20,75 +20,80 @@ router.post('/', protectCustomer, async (req, res) => {
       total_price
     });
 
-    // TRIGGER NOTIFICATION for the Artisan
-    await Notification.create({
-      recipient: artisanId,
-      sender: req.customer._id,
-      message: `New booking request from ${req.customer.name} for ${start_date}`,
-      type: 'booking'
-    });
+    // Create the Notification for the Artisan
+    try {
+      await Notification.create({
+        recipient: artisanId,
+        sender: req.customer._id,
+        onModel: 'Artisan', // The person receiving this is an Artisan
+        message: `New booking request from ${req.customer.name}`,
+        type: 'booking'
+      });
+    } catch (notifErr) {
+      console.error("Notification failed to save:", notifErr.message);
+      // We don't return res.status(500) here because the booking itself succeeded
+    }
 
     res.status(201).json(reservation);
   } catch (error) {
-    res.status(500).json({ message: 'Booking failed' });
+    console.error("RESERVATION ERROR:", error); // Check your VS Code terminal for this!
+    res.status(500).json({ message: 'Booking failed', error: error.message });
   }
 });
 
 // =======================================================
-// 2. GET CUSTOMER'S REQUESTS (My Orders)
-// Method: GET /api/reservations/my-requests
+// 2. GET CUSTOMER ORDERS
 // =======================================================
 router.get('/my-requests', protectCustomer, async (req, res) => {
   try {
-    const reservations = await Reservation.find({ customer: req.customer._id })
-      .populate('artisan', 'name craftType phone_number')
+    const orders = await Reservation.find({ customer: req.customer._id })
+      .populate('artisan', 'name craftType location profilePicture')
       .sort({ createdAt: -1 });
-    res.json(reservations);
+    res.json(orders);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching orders' });
+    res.status(500).json({ message: 'Error fetching your requests' });
   }
 });
 
 // =======================================================
-// 3. GET ARTISAN'S INCOMING JOBS
-// Method: GET /api/reservations/incoming-jobs
+// 3. GET ARTISAN JOBS
 // =======================================================
 router.get('/incoming-jobs', protectArtisan, async (req, res) => {
   try {
-    const reservations = await Reservation.find({ artisan: req.artisan._id })
-      .populate('customer', 'name phone_number')
+    const jobs = await Reservation.find({ artisan: req.artisan._id })
+      .populate('customer', 'name phone_number profilePicture')
       .sort({ createdAt: -1 });
-    res.json(reservations);
+    res.json(jobs);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching jobs' });
+    res.status(500).json({ message: 'Error fetching incoming jobs' });
   }
 });
 
 // =======================================================
-// 4. UPDATE RESERVATION STATUS (Artisan: Accept/Reject/Complete)
-// Method: PUT /api/reservations/:id/status
+// 4. UPDATE STATUS (Artisan)
 // =======================================================
 router.put('/:id/status', protectArtisan, async (req, res) => {
   try {
-    const { status } = req.body; // e.g., 'Accepted', 'Rejected', 'Completed'
+    const { status } = req.body;
     const reservation = await Reservation.findById(req.params.id);
 
     if (!reservation) return res.status(404).json({ message: 'Reservation not found' });
 
     reservation.status = status;
-    const updatedReservation = await reservation.save();
+    await reservation.save();
 
-    // TRIGGER NOTIFICATION for the Customer
+    // Notify the Customer about the status change
     await Notification.create({
       recipient: reservation.customer,
       sender: req.artisan._id,
-      message: `Your booking status has been updated to: ${status}`,
+      onModel: 'Customer', // The person receiving this is a Customer
+      message: `Your booking status is now: ${status}`,
       type: 'status_update'
     });
 
-    res.json(updatedReservation);
+    res.json(reservation);
   } catch (error) {
-    res.status(500).json({ message: 'Update failed' });
+    res.status(500).json({ message: 'Status update failed' });
   }
 });
 
