@@ -1,25 +1,39 @@
 const express = require('express');
 const router = express.Router();
 const Notification = require('../models/NotificationModel');
-const { protectCustomer, protectArtisan } = require('../middleware/authMiddleware');
+const { protectArtisan, protectCustomer } = require('../middleware/authMiddleware');
+
+/**
+ * HELPER MIDDLEWARE: This checks if the user is EITHER an Artisan or a Customer.
+ * This prevents the "Not Authorized" error when testing in Postman.
+ */
+const protectAny = async (req, res, next) => {
+    // If the token works for an Artisan, let them through
+    return protectArtisan(req, res, () => {
+        if (req.artisan) return next();
+        
+        // If not an artisan, try treating them as a Customer
+        return protectCustomer(req, res, () => {
+            if (req.customer) return next();
+            
+            // If neither, then they are truly unauthorized
+            res.status(401).json({ message: "Not authorized to see notifications" });
+        });
+    });
+};
 
 // =======================================================
-// 1. GET ALL MY NOTIFICATIONS
-// Works for both Artisans and Customers
+// 1. GET ALL NOTIFICATIONS
+// Method: GET /api/notifications
 // =======================================================
-router.get('/', async (req, res) => {
+router.get('/', protectAny, async (req, res) => {
   try {
-    // We check for the user ID from the token (works for both roles)
-    // The middleware attaches the user to req.customer or req.artisan
-    const userId = req.customer?._id || req.artisan?._id;
-
-    if (!userId) {
-      return res.status(401).json({ message: 'Not authorized' });
-    }
+    // Determine the ID from whichever middleware succeeded
+    const userId = req.artisan?._id || req.customer?._id;
 
     const notifications = await Notification.find({ recipient: userId })
-      .sort({ createdAt: -1 }) // Show newest alerts at the top
-      .limit(20); // Keep it fast by showing only the last 20
+      .sort({ createdAt: -1 }) // Newest first
+      .limit(50);
 
     res.json(notifications);
   } catch (error) {
@@ -28,21 +42,42 @@ router.get('/', async (req, res) => {
 });
 
 // =======================================================
-// 2. MARK NOTIFICATIONS AS READ
+// 2. MARK ALL AS READ
 // Method: PUT /api/notifications/read
 // =======================================================
-router.put('/read', async (req, res) => {
+router.put('/read', protectAny, async (req, res) => {
   try {
-    const userId = req.customer?._id || req.artisan?._id;
+    const userId = req.artisan?._id || req.customer?._id;
 
     await Notification.updateMany(
       { recipient: userId, isRead: false },
-      { $set: { isRead: true } }
+      { isRead: true }
     );
 
     res.json({ message: 'All notifications marked as read' });
   } catch (error) {
     res.status(500).json({ message: 'Error updating notifications' });
+  }
+});
+
+// =======================================================
+// 3. DELETE A SPECIFIC NOTIFICATION
+// Method: DELETE /api/notifications/:id
+// =======================================================
+router.delete('/:id', protectAny, async (req, res) => {
+  try {
+    const notification = await Notification.findById(req.params.id);
+    const userId = req.artisan?._id || req.customer?._id;
+
+    // Security check: Only the recipient can delete their own notification
+    if (notification && notification.recipient.toString() === userId.toString()) {
+      await notification.deleteOne();
+      res.json({ message: 'Notification removed' });
+    } else {
+      res.status(404).json({ message: 'Notification not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error deleting notification' });
   }
 });
 
