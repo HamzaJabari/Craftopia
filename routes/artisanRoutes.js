@@ -10,7 +10,6 @@ const upload = require('../middleware/uploadMiddleware');
 
 // =======================================================
 // 1. SIGNUP
-// POST /api/artisans/signup
 // =======================================================
 router.post('/signup', async (req, res) => {
   try {
@@ -18,7 +17,7 @@ router.post('/signup', async (req, res) => {
 
     const artisanExists = await Artisan.findOne({ email });
     if (artisanExists) {
-      return res.status(400).json({ message: 'Artisan already exists with this email' });
+      return res.status(400).json({ message: 'Artisan already exists' });
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -34,26 +33,19 @@ router.post('/signup', async (req, res) => {
       location
     });
 
-    if (artisan) {
-      res.status(201).json({
-        _id: artisan._id,
-        name: artisan.name,
-        email: artisan.email,
-        phone_number: artisan.phone_number,
-        craftType: artisan.craftType,
-        location: artisan.location,
-        role: 'artisan',
-        token: generateToken(artisan._id)
-      });
-    }
+    res.status(201).json({
+      _id: artisan._id,
+      name: artisan.name,
+      role: 'artisan',
+      token: generateToken(artisan._id)
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message || 'Signup failed' });
+    res.status(500).json({ message: error.message });
   }
 });
 
 // =======================================================
 // 2. LOGIN
-// POST /api/artisans/login
 // =======================================================
 router.post('/login', async (req, res) => {
   try {
@@ -76,14 +68,12 @@ router.post('/login', async (req, res) => {
 });
 
 // =======================================================
-// 3. GET & UPDATE PROFILE
-// GET/PUT /api/artisans/profile
+// 3. PROFILE DATA (GET & PUT)
 // =======================================================
 router.get('/profile', protectArtisan, async (req, res) => {
   try {
     const artisan = await Artisan.findById(req.artisan._id).select('-password');
-    if (artisan) res.json(artisan);
-    else res.status(404).json({ message: 'Artisan not found' });
+    res.json(artisan);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching profile' });
   }
@@ -113,20 +103,45 @@ router.put('/profile', protectArtisan, async (req, res) => {
 });
 
 // =======================================================
-// 4. PORTFOLIO MANAGEMENT (Upload & Delete)
+// 4. PROFILE PICTURE (Replaces main avatar)
+// =======================================================
+router.post('/profile-picture', protectArtisan, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+    const artisan = await Artisan.findById(req.artisan._id);
+    
+    // Delete old file if it exists (to save space)
+    if (artisan.profilePicture && artisan.profilePicture.startsWith('/uploads/')) {
+      const oldPath = path.join(__dirname, '..', artisan.profilePicture);
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    artisan.profilePicture = `/uploads/${req.file.filename}`;
+    await artisan.save();
+
+    res.json({ message: 'Profile picture updated', profilePicture: artisan.profilePicture });
+  } catch (error) {
+    res.status(500).json({ message: 'Upload failed' });
+  }
+});
+
+// =======================================================
+// 5. PORTFOLIO IMAGES (Adds to array)
 // =======================================================
 router.post('/upload-portfolio', protectArtisan, upload.single('image'), async (req, res) => {
   try {
-    const artisan = await Artisan.findById(req.artisan._id);
-    if (!req.file) return res.status(400).json({ message: 'Please upload an image' });
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
 
+    const artisan = await Artisan.findById(req.artisan._id);
     const imageUrl = `/uploads/${req.file.filename}`;
+    
     artisan.portfolioImages.push(imageUrl);
     await artisan.save();
     
-    res.json({ message: 'Image uploaded', imageUrl, portfolioImages: artisan.portfolioImages });
+    res.json({ message: 'Added to portfolio', portfolioImages: artisan.portfolioImages });
   } catch (error) {
-    res.status(500).json({ message: 'Upload failed' });
+    res.status(500).json({ message: 'Portfolio upload failed' });
   }
 });
 
@@ -148,8 +163,7 @@ router.delete('/delete-portfolio', protectArtisan, async (req, res) => {
 });
 
 // =======================================================
-// 5. SEARCH ARTISANS (Public)
-// GET /api/artisans
+// 6. PUBLIC SEARCH
 // =======================================================
 router.get('/', async (req, res) => {
   try {

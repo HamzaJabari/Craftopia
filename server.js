@@ -1,37 +1,45 @@
-// server.js
-require('dotenv').config();
 const express = require('express');
-const connectDB = require('./config/db');
+const dotenv = require('dotenv');
+const cors = require('cors');
 const path = require('path');
+const connectDB = require('./config/db');
 
-// Import Routes
+// 1. Import Routes
 const artisanRoutes = require('./routes/artisanRoutes');
-const reservationRoutes = require('./routes/reservationRoutes');
 const customerRoutes = require('./routes/customerRoutes');
+const reservationRoutes = require('./routes/reservationRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
-const availabilityRoutes = require('./routes/availabilityRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
-
-
+// Initialize App & Environment
+dotenv.config();
+connectDB();
 const app = express();
 
-// Connect to Database
-connectDB();
+// 2. Middlewares
+app.use(cors());
+app.use(express.json()); // Essential for reading JSON bodies
 
-// Middleware
-app.use(express.json());
-
-// Routes
-app.use('/api/artisans', artisanRoutes);
-app.use('/api/reservations', reservationRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/availability', availabilityRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/admin', adminRoutes);
+// 3. Static Folder for Images (Very Important for your teammate!)
+// This makes the 'uploads' folder public so images can be viewed in the browser
 app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
 
+// 4. Use Routes (The order matches your handover document)
+app.use('/api/artisans', artisanRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/reservations', reservationRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
+
+// 5. Default Route
+app.get('/', (req, res) => {
+  res.send('Craftopia API is running...');
+});
+
+// 6. Start Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
