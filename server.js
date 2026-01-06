@@ -1,45 +1,45 @@
 const express = require('express');
-const dotenv = require('dotenv');
 const cors = require('cors');
+const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 const path = require('path');
-const connectDB = require('./config/db');
 
-// 1. Import Routes
-const artisanRoutes = require('./routes/artisanRoutes');
+// Import Routes
 const customerRoutes = require('./routes/customerRoutes');
+const artisanRoutes = require('./routes/artisanRoutes');
 const reservationRoutes = require('./routes/reservationRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const adminRoutes = require('./routes/adminRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
+const availabilityRoutes = require('./routes/availabilityRoutes'); // <--- ADDED THIS
 
-// Initialize App & Environment
 dotenv.config();
-connectDB();
+
 const app = express();
 
-// 2. Middlewares
+// Middleware
 app.use(cors());
-app.use(express.json()); // Essential for reading JSON bodies
+app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// 3. Static Folder for Images (Very Important for your teammate!)
-// This makes the 'uploads' folder public so images can be viewed in the browser
-app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
+// DB Connection
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/craftopia')
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => console.log(err));
 
-// 4. Use Routes (The order matches your handover document)
-app.use('/api/artisans', artisanRoutes);
+// Mount Routes
 app.use('/api/customers', customerRoutes);
+app.use('/api/artisans', artisanRoutes);
 app.use('/api/reservations', reservationRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/notifications', notificationRoutes);
+app.use('/api/availability', availabilityRoutes); // <--- ADDED THIS
 
-// 5. Default Route
+// Default Route
 app.get('/', (req, res) => {
   res.send('Craftopia API is running...');
 });
 
-// 6. Start Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
