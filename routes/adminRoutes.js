@@ -18,6 +18,9 @@ const { protectAdmin } = require('../middleware/authMiddleware');
 // 1. CREATE ADMIN (Setup Only)
 // Endpoint: POST /api/admin/create
 // =======================================================
+
+
+
 router.post('/create', async (req, res) => {
   try {
     const { name, email, password } = req.body;

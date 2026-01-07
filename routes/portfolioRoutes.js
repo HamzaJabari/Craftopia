@@ -9,6 +9,42 @@ const { protectCustomer } = require('../middleware/authMiddleware');
 // 1. ADD COMMENT TO PORTFOLIO IMAGE
 // Endpoint: POST /api/portfolio/comment
 // =======================================================
+
+const Artisan = require('../models/ArtisanModel'); // <--- Make sure to import Artisan here!
+
+// =======================================================
+// 3. GET ALL IMAGES (For the Gallery Page)
+// Endpoint: GET /api/portfolio/feed
+// =======================================================
+router.get('/feed', async (req, res) => {
+  try {
+    const feed = await Artisan.aggregate([
+      // 1. Only get artisans who actually have images
+      { $match: { portfolioImages: { $exists: true, $not: { $size: 0 } } } },
+      
+      // 2. "Unwind" the array (splits 1 artisan with 3 images into 3 separate documents)
+      { $unwind: "$portfolioImages" },
+
+      // 3. Select only the data we need for the card
+      {
+        $project: {
+          _id: 0,
+          imageUrl: "$portfolioImages",
+          artisanId: "$_id",
+          artisanName: "$name",
+          craftType: "$craftType"
+        }
+      },
+
+      // 4. (Optional) Randomize the order so it's not always the same users at the top
+      { $sample: { size: 50 } } 
+    ]);
+
+    res.json(feed);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching feed' });
+  }
+});
 router.post('/comment', protectCustomer, async (req, res) => {
   try {
     const { artisanId, imageUrl, comment } = req.body;
