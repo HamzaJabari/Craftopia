@@ -1,35 +1,35 @@
+// models/NotificationModel.js
 const mongoose = require('mongoose');
 
 const notificationSchema = mongoose.Schema({
   recipient: { 
     type: mongoose.Schema.Types.ObjectId, 
     required: true, 
-    refPath: 'onModel' 
+    refPath: 'onModelRecipient' // Changed this to distinguish recipient type
   },
   sender: { 
     type: mongoose.Schema.Types.ObjectId, 
     required: true, 
-    refPath: 'onModel' 
+    refPath: 'onModelSender' // Changed this to distinguish sender type
   },
-  // This tells Mongoose which collection to look at for the IDs
-  onModel: { 
+  // We need two separate "onModel" fields because sender and recipient might be different types
+  onModelRecipient: { 
     type: String, 
     required: true, 
     enum: ['Artisan', 'Customer'] 
   },
-  message: { 
+  onModelSender: { 
     type: String, 
-    required: true 
+    required: true, 
+    enum: ['Artisan', 'Customer', 'Admin'] // <--- ADDED 'Admin'
   },
+  message: { type: String, required: true },
   type: { 
     type: String, 
-    enum: ['booking', 'status_update', 'review'],
+    enum: ['booking', 'status_update', 'review', 'system_alert', 'comment'], // <--- ADDED 'system_alert' and 'comment'
     required: true 
   },
-  isRead: { 
-    type: Boolean, 
-    default: false 
-  }
+  isRead: { type: Boolean, default: false }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Notification', notificationSchema);

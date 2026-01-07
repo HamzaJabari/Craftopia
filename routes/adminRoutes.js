@@ -1,39 +1,35 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs'); // Make sure you have this installed
-const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
-// Import All Models (Needed for Stats and User Management)
+// Import All Models
 const Admin = require('../models/AdminModel');
 const Customer = require('../models/CustomerModel');
 const Artisan = require('../models/ArtisanModel');
 const Reservation = require('../models/ReservationModel');
+const Notification = require('../models/NotificationModel');
+const Review = require('../models/ReviewModel');
 
-// Import Utilities
+// Import Utilities & Middleware
 const generateToken = require('../utils/generateToken');
-// Middleware (We will use this to protect the sensitive admin routes)
-// Note: You need to make sure protectAdmin is exported from your authMiddleware
 const { protectAdmin } = require('../middleware/authMiddleware');
 
 // =======================================================
-// 1. CREATE ADMIN (Run once via Postman to setup)
+// 1. CREATE ADMIN (Setup Only)
 // Endpoint: POST /api/admin/create
 // =======================================================
 router.post('/create', async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Check if admin already exists
     const adminExists = await Admin.findOne({ email });
     if (adminExists) {
       return res.status(400).json({ message: 'Admin with this email already exists' });
     }
 
-    // Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create the Admin
     const admin = await Admin.create({
       name,
       email,
@@ -42,28 +38,23 @@ router.post('/create', async (req, res) => {
 
     res.status(201).json({
       message: 'Admin created successfully',
-      _id: admin._id,
       email: admin.email
     });
   } catch (error) {
-    // This logs the specific error to your terminal so you can see what happened
     console.error("ADMIN CREATE ERROR:", error);
     res.status(500).json({ message: 'Failed to create admin', error: error.message });
   }
 });
 
 // =======================================================
-// 2. ADMIN LOGIN (The missing piece)
+// 2. ADMIN LOGIN
 // Endpoint: POST /api/admin/login
 // =======================================================
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Find admin by email
     const admin = await Admin.findOne({ email });
 
-    // Check password
     if (admin && (await bcrypt.compare(password, admin.password))) {
       res.json({
         _id: admin._id,
@@ -82,12 +73,11 @@ router.post('/login', async (req, res) => {
 });
 
 // =======================================================
-// 3. SYSTEM STATISTICS (For Dashboard)
+// 3. SYSTEM STATISTICS
 // Endpoint: GET /api/admin/stats
 // =======================================================
-router.get('/stats', async (req, res) => {
+router.get('/stats', protectAdmin, async (req, res) => {
   try {
-    // Run these queries in parallel for speed
     const [customerCount, artisanCount, reservationCount, completedReservations] = await Promise.all([
       Customer.countDocuments(),
       Artisan.countDocuments(),
@@ -95,7 +85,6 @@ router.get('/stats', async (req, res) => {
       Reservation.find({ status: 'Completed' })
     ]);
 
-    // Calculate Total Revenue (Sum of all completed jobs)
     const totalRevenue = completedReservations.reduce((acc, curr) => acc + (curr.total_price || 0), 0);
 
     res.json({
@@ -106,24 +95,20 @@ router.get('/stats', async (req, res) => {
       completedJobs: completedReservations.length,
       totalRevenue: totalRevenue
     });
-
   } catch (error) {
-    console.error("STATS ERROR:", error);
     res.status(500).json({ message: 'Error fetching statistics' });
   }
 });
 
 // =======================================================
-// 4. GET ALL USERS (Customers & Artisans)
+// 4. GET ALL USERS
 // Endpoint: GET /api/admin/users
 // =======================================================
-router.get('/users', async (req, res) => {
+router.get('/users', protectAdmin, async (req, res) => {
   try {
-    // Fetch both lists
     const customers = await Customer.find({}).select('-password');
     const artisans = await Artisan.find({}).select('-password');
 
-    // Combine them and add a "role" label so Frontend knows who is who
     const allUsers = [
       ...customers.map(c => ({ ...c._doc, role: 'customer' })),
       ...artisans.map(a => ({ ...a._doc, role: 'artisan' }))
@@ -138,11 +123,10 @@ router.get('/users', async (req, res) => {
 // =======================================================
 // 5. DELETE USER
 // Endpoint: DELETE /api/admin/users/:id
-//Body: { "role": "customer" } OR { "role": "artisan" }
 // =======================================================
-router.delete('/users/:id', async (req, res) => {
+router.delete('/users/:id', protectAdmin, async (req, res) => {
   try {
-    const { role } = req.body; // We need to know which collection to look in
+    const { role } = req.body; // Must send { "role": "customer" } or "artisan"
 
     if (role === 'customer') {
       await Customer.findByIdAndDelete(req.params.id);
@@ -155,6 +139,104 @@ router.delete('/users/:id', async (req, res) => {
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Error deleting user' });
+  }
+});
+
+// =======================================================
+// 6. BROADCAST NOTIFICATION (NEW)
+// Endpoint: POST /api/admin/broadcast
+// =======================================================
+router.post('/broadcast', protectAdmin, async (req, res) => {
+  try {
+    const { message, target } = req.body;
+    let recipients = [];
+
+    // Find targets based on request
+    if (target === 'customers' || target === 'all') {
+      const customers = await Customer.find().select('_id');
+      recipients.push(...customers.map(c => ({ id: c._id, role: 'Customer' })));
+    }
+    if (target === 'artisans' || target === 'all') {
+      const artisans = await Artisan.find().select('_id');
+      recipients.push(...artisans.map(a => ({ id: a._id, role: 'Artisan' })));
+    }
+
+    if (recipients.length === 0) {
+      return res.status(400).json({ message: 'No recipients found' });
+    }
+
+    // Prepare notifications array
+    const notifications = recipients.map(user => ({
+      recipient: user.id,
+      sender: req.admin._id,
+      onModelRecipient: user.role,
+      onModelSender: 'Admin', // Make sure NotificationModel supports 'Admin' enum
+      message: `📢 SYSTEM UPDATE: ${message}`,
+      type: 'system_alert'
+    }));
+
+    await Notification.insertMany(notifications);
+
+    res.json({ message: `Notification sent to ${recipients.length} users.` });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Broadcast failed' });
+  }
+});
+
+// =======================================================
+// 7. GET ALL REVIEWS (Moderation - NEW)
+// Endpoint: GET /api/admin/reviews
+// =======================================================
+router.get('/reviews', protectAdmin, async (req, res) => {
+  try {
+    const reviews = await Review.find()
+      .populate('customer', 'name email')
+      .populate('artisan', 'name craftType')
+      .sort({ createdAt: -1 });
+
+    res.json(reviews);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching reviews' });
+  }
+});
+
+// =======================================================
+// 8. DELETE REVIEW (Moderation - NEW)
+// Endpoint: DELETE /api/admin/reviews/:id
+// =======================================================
+router.delete('/reviews/:id', protectAdmin, async (req, res) => {
+  try {
+    await Review.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Review deleted by Admin' });
+  } catch (error) {
+    res.status(500).json({ message: 'Delete failed' });
+  }
+});
+
+// =======================================================
+// 9. DELETE ARTISAN CONTENT (Moderation - NEW)
+// Endpoint: DELETE /api/admin/portfolio
+// =======================================================
+router.delete('/portfolio', protectAdmin, async (req, res) => {
+  try {
+    const { artisanId, imageUrl } = req.body;
+    
+    const artisan = await Artisan.findById(artisanId);
+    if (!artisan) return res.status(404).json({ message: 'Artisan not found' });
+
+    // Remove the image from the array
+    const originalLength = artisan.portfolioImages.length;
+    artisan.portfolioImages = artisan.portfolioImages.filter(img => img !== imageUrl);
+
+    if (artisan.portfolioImages.length === originalLength) {
+      return res.status(404).json({ message: 'Image not found in portfolio' });
+    }
+
+    await artisan.save();
+    res.json({ message: 'Content removed successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Content deletion failed' });
   }
 });
 

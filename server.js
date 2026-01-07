@@ -12,6 +12,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const availabilityRoutes = require('./routes/availabilityRoutes'); // <--- ADDED THIS
+const portfolioRoutes = require('./routes/portfolioRoutes');
 
 dotenv.config();
 
@@ -43,3 +44,4 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.use('/api/portfolio', portfolioRoutes);
