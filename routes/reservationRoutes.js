@@ -9,24 +9,43 @@ const { protectCustomer, protectArtisan } = require('../middleware/authMiddlewar
 // 1. CREATE RESERVATION (Customer)
 // Endpoint: POST /api/reservations
 // =======================================================
+// =======================================================
+// 1. CREATE RESERVATION (Customer)
+// Endpoint: POST /api/reservations
+// =======================================================
+// =======================================================
+// 1. CREATE RESERVATION (Customer)
+// Endpoint: POST /api/reservations
+// =======================================================
 router.post('/', protectCustomer, async (req, res) => {
   try {
-    const { artisanId, service_name, description, date, time } = req.body;
+    // 1. Log the incoming data to see exactly what Postman is sending
+    console.log("Incoming Request Body:", req.body); 
+
+    const { artisanId, service_name, description, date, start_date, time } = req.body;
+
+    // 2. SMART CHECK: Use 'start_date' if provided, otherwise use 'date'
+    const finalDate = start_date || date; 
+
+    // 3. Validation: If neither exists, stop here!
+    if (!finalDate) {
+      return res.status(400).json({ message: "Missing field: start_date (or date)" });
+    }
 
     const reservation = await Reservation.create({
       customer: req.customer._id,
       artisan: artisanId,
       service_name,
       description,
-      date,
+      start_date: finalDate, // <--- Using the smart variable
       time,
       status: 'New'
     });
 
-    // --- FIX: Added onModelRecipient and onModelSender ---
+    // 4. Create Notification
     await Notification.create({
-      recipient: artisanId,      // Sending TO Artisan
-      sender: req.customer._id,  // Coming FROM Customer
+      recipient: artisanId,
+      sender: req.customer._id,
       onModelRecipient: 'Artisan', 
       onModelSender: 'Customer',
       message: `New reservation request from ${req.customer.name}`,
@@ -36,10 +55,9 @@ router.post('/', protectCustomer, async (req, res) => {
     res.status(201).json(reservation);
   } catch (error) {
     console.error("RESERVATION ERROR:", error);
-    res.status(500).json({ message: 'Reservation failed' });
+    res.status(500).json({ message: 'Reservation failed', error: error.message });
   }
 });
-
 // =======================================================
 // 2. GET RESERVATIONS (For Authenticated User)
 // Endpoint: GET /api/reservations
