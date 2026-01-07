@@ -1,25 +1,51 @@
 const express = require('express');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 const Notification = require('../models/NotificationModel');
-const { protectArtisan, protectCustomer } = require('../middleware/authMiddleware');
+const Artisan = require('../models/ArtisanModel');
+const Customer = require('../models/CustomerModel');
 
 /**
- * HELPER MIDDLEWARE: This checks if the user is EITHER an Artisan or a Customer.
- * This prevents the "Not Authorized" error when testing in Postman.
+ * FIXED MIDDLEWARE: Checks both collections manually.
+ * This works for Artisans AND Customers without throwing a fake 401 error.
  */
 const protectAny = async (req, res, next) => {
-    // If the token works for an Artisan, let them through
-    return protectArtisan(req, res, () => {
-        if (req.artisan) return next();
-        
-        // If not an artisan, try treating them as a Customer
-        return protectCustomer(req, res, () => {
-            if (req.customer) return next();
-            
-            // If neither, then they are truly unauthorized
-            res.status(401).json({ message: "Not authorized to see notifications" });
-        });
-    });
+  let token;
+
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    try {
+      // Get token from header
+      token = req.headers.authorization.split(' ')[1];
+      
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // 1. Check if it's an Artisan
+      const artisan = await Artisan.findById(decoded.id).select('-password');
+      if (artisan) {
+        req.artisan = artisan;
+        return next();
+      }
+
+      // 2. If not Artisan, check if it's a Customer
+      const customer = await Customer.findById(decoded.id).select('-password');
+      if (customer) {
+        req.customer = customer;
+        return next();
+      }
+
+      // 3. If neither, then fail
+      return res.status(401).json({ message: 'Not authorized, user not found' });
+
+    } catch (error) {
+      console.error(error);
+      return res.status(401).json({ message: 'Not authorized, token failed' });
+    }
+  }
+
+  if (!token) {
+    return res.status(401).json({ message: 'Not authorized, no token' });
+  }
 };
 
 // =======================================================
@@ -28,7 +54,7 @@ const protectAny = async (req, res, next) => {
 // =======================================================
 router.get('/', protectAny, async (req, res) => {
   try {
-    // Determine the ID from whichever middleware succeeded
+    // Determine the ID from whichever check succeeded
     const userId = req.artisan?._id || req.customer?._id;
 
     const notifications = await Notification.find({ recipient: userId })
