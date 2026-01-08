@@ -1,3 +1,4 @@
+const Artisan = require('../models/ArtisanModel');
 const express = require('express');
 const router = express.Router();
 const Reservation = require('../models/ReservationModel');
@@ -12,45 +13,64 @@ router.post('/', protectCustomer, async (req, res) => {
   try {
     const { 
       artisanId, 
-      job_type,       // 'Order' or 'Custom_Request'
-      title,          // e.g., "Wooden Chair" or "Fix Table"
+      job_type, 
+      title, 
       description, 
-      date,           // Postman might send 'date' or 'deadline'
-      deadline,
-      quantity,       // Only for orders
-      reference_image // Only for orders
+      deadline, 
+      quantity, 
+      reference_image 
     } = req.body;
 
-    // Smart Date Handling
-    const finalDate = deadline || date;
+    let initialPrice = 0;
+    let initialStatus = 'Pending';
 
-    // Create the Job
+    // LOGIC: If it's a "Standard Order", calculate the price automatically
+    if (job_type === 'Order' && reference_image) {
+      // 1. Find the Artisan
+      const artisan = await Artisan.findById(artisanId);
+      
+      // 2. Find the specific item in their portfolio
+      const item = artisan.portfolioImages.find(img => img.imageUrl === reference_image);
+      
+      if (item && item.price) {
+        // 3. Calculate Total: (Item Price * Quantity)
+        initialPrice = item.price * (quantity || 1);
+        
+        // OPTIONAL: If price is set, maybe status starts as 'Price_Proposed' instead of 'Pending'?
+        // For now, let's keep it 'Pending' so Artisan can confirm stock/shipping.
+        initialStatus = 'Pending'; 
+      }
+    }
+
     const newJob = await Reservation.create({
       customer: req.customer._id,
       artisan: artisanId,
-      job_type: job_type || 'Custom_Request', // Default to custom if missing
+      job_type: job_type || 'Custom_Request',
       title: title || 'New Request',
       description,
-      deadline: finalDate,
+      deadline,
       quantity: quantity || 1,
       reference_image,
-      status: 'Pending'
+      
+      status: initialStatus,
+      agreed_price: initialPrice // <--- The calculated price is saved here!
     });
 
-    // Notify the Artisan
+    // Notify Artisan
     await Notification.create({
       recipient: artisanId,
       sender: req.customer._id,
-      onModelRecipient: 'Artisan', 
+      onModelRecipient: 'Artisan',
       onModelSender: 'Customer',
-      message: `New ${job_type} received: ${title}`,
+      message: `New ${job_type}: ${title} (Value: $${initialPrice})`,
       type: 'booking'
     });
 
     res.status(201).json(newJob);
+
   } catch (error) {
-    console.error("CREATE JOB ERROR:", error);
-    res.status(500).json({ message: 'Failed to create request', error: error.message });
+    console.error("CREATE ERROR:", error);
+    res.status(500).json({ message: 'Failed to create request' });
   }
 });
 
@@ -76,14 +96,14 @@ router.get('/customer', protectCustomer, async (req, res) => {
 router.get('/artisan', protectArtisan, async (req, res) => {
   try {
     const jobs = await Reservation.find({ artisan: req.artisan._id })
-      .populate('customer', 'name email phone location')
+      // CHANGE 'phone' TO 'phone_number'
+      .populate('customer', 'name email phone_number location') 
       .sort({ createdAt: -1 });
     res.json(jobs);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching jobs' });
   }
 });
-
 // =======================================================
 // 4. UPDATE STATUS & PRICE (Artisan)
 // Endpoint: PUT /api/reservations/:id/status
@@ -188,4 +208,5 @@ router.put('/:id/reply', protectCustomer, async (req, res) => {
     res.status(500).json({ message: 'Reply failed' });
   }
 });
+
 module.exports = router;
