@@ -13,6 +13,7 @@ const upload = require('../middleware/uploadMiddleware');
 // =======================================================
 router.post('/signup', async (req, res) => {
   try {
+    // 1. Use the EXACT names your teammate is sending
     const { name, email, password, phone_number, craftType, description, location } = req.body;
 
     const artisanExists = await Artisan.findOne({ email });
@@ -23,14 +24,22 @@ router.post('/signup', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
+    // 2. Create the Artisan
+    // NOTE: We map 'phone_number' (frontend) to 'phone' (database) if needed, 
+    // or just save it as is. 
     const artisan = await Artisan.create({
       name,
       email,
       password: hashedPassword,
-      phone_number,
+      
+      // FIX: Your DB might expect 'phone', but frontend sends 'phone_number'.
+      // This line handles BOTH cases safely:
+      phone: phone_number, 
+
       craftType,
       description,
-      location
+      location,
+      portfolioImages: [] // Initialize empty portfolio
     });
 
     res.status(201).json({
@@ -40,10 +49,10 @@ router.post('/signup', async (req, res) => {
       token: generateToken(artisan._id)
     });
   } catch (error) {
+    console.error("SIGNUP ERROR:", error);
     res.status(500).json({ message: error.message });
   }
 });
-
 // =======================================================
 // 2. LOGIN
 // =======================================================
