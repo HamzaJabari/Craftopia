@@ -36,6 +36,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/availability', availabilityRoutes); // <--- ADDED THIS
+app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
 
 // Default Route
 app.get('/', (req, res) => {
