@@ -1,56 +1,27 @@
-// models/ArtisanModel.js
 const mongoose = require('mongoose');
 
-const ArtisanSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true,
-  },
-  email: {
-    type: String,
-    required: true,
-    unique: true, 
-    lowercase: true,
-    
-  },
-  phone_number: { 
-    type: String
-   },
-  password: { 
-    type: String,
-    required: true,
-  },
-  craftType: {
-    type: String,
-  required: true, 
-  enum: ['Tailoring', 'Carpentry', 'Embroidery', 'Pottery', 'Blacksmith', 'Painter', 'Other'],
-  },
-  location: {
-    type: String,
-    required: true,
-  },
-  description: {
-    type: String,
-    maxlength: 500,
-  },
+const artisanSchema = mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  phone: { type: String, required: true },
+  location: { type: String, required: true },
+  craftType: { type: String, required: true }, // e.g., Carpenter, Potter
+  description: { type: String },
+  profilePicture: { type: String },
   
-  profilePicture: {
-  type: String,
-  default: '/uploads/default-avatar.png' // Optional: a default image
-},
+  // --- NEW STRUCTURE: Image + Price + Description ---
   portfolioImages: [
     {
-      type: String,
-    },
+      imageUrl: { type: String, required: true },
+      price: { type: Number, default: 0 },       // <--- The Price Tag
+      description: { type: String }              // <--- Optional details
+    }
   ],
-  averageRating: {
-    type: Number,
-    default: 0,
-  }
-  
-}, {
-  timestamps: true,
-});
+  // ------------------------------------------------
 
-module.exports = mongoose.model('Artisan', ArtisanSchema);
+  rating: { type: Number, default: 0 },
+  isVerified: { type: Boolean, default: false }
+}, { timestamps: true });
+
+module.exports = mongoose.model('Artisan', artisanSchema);

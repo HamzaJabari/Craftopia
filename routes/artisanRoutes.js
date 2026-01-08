@@ -129,39 +129,41 @@ router.post('/profile-picture', protectArtisan, upload.single('image'), async (r
 // =======================================================
 // 5. PORTFOLIO IMAGES (Adds to array)
 // =======================================================
-router.post('/upload-portfolio', protectArtisan, upload.single('image'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
 
-    const artisan = await Artisan.findById(req.artisan._id);
-    const imageUrl = `/uploads/${req.file.filename}`;
-    
-    artisan.portfolioImages.push(imageUrl);
+
+
+router.post('/upload-portfolio', protectArtisan, async (req, res) => {
+  try {
+    // 1. Get data from body
+    // If you are using Multer (file upload), imageUrl will come from the file path.
+    // Ensure your frontend sends 'price' and 'description' along with the image.
+    const { imageUrl, price, description } = req.body;
+
+    if (!imageUrl) {
+      return res.status(400).json({ message: 'Image URL is required' });
+    }
+
+    const artisan = req.artisan;
+
+    // 2. Push the new detailed object structure
+    artisan.portfolioImages.push({
+      imageUrl: imageUrl, 
+      price: price || 0,             // Default to 0 if they don't set a price
+      description: description || '' // Optional description
+    });
+
     await artisan.save();
     
-    res.json({ message: 'Added to portfolio', portfolioImages: artisan.portfolioImages });
+    res.json({ 
+      message: 'Portfolio updated successfully', 
+      portfolio: artisan.portfolioImages 
+    });
+
   } catch (error) {
-    res.status(500).json({ message: 'Portfolio upload failed' });
+    console.error(error);
+    res.status(500).json({ message: 'Upload failed' });
   }
 });
-
-router.delete('/delete-portfolio', protectArtisan, async (req, res) => {
-  try {
-    const { imageUrl } = req.body;
-    const artisan = await Artisan.findById(req.artisan._id);
-
-    artisan.portfolioImages = artisan.portfolioImages.filter(img => img !== imageUrl);
-    await artisan.save();
-
-    const filePath = path.join(__dirname, '..', imageUrl);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-
-    res.json({ message: 'Image deleted', portfolioImages: artisan.portfolioImages });
-  } catch (error) {
-    res.status(500).json({ message: 'Delete failed' });
-  }
-});
-
 // =======================================================
 // 6. PUBLIC SEARCH
 // =======================================================

@@ -1,53 +1,46 @@
 const mongoose = require('mongoose');
 
-const ReservationSchema = new mongoose.Schema({
-  // Link to the Customer who made the booking [cite: 549]
-  customer: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true,
+const reservationSchema = mongoose.Schema({
+  customer: { 
+    type: mongoose.Schema.Types.ObjectId, 
     ref: 'Customer', 
+    required: true 
   },
-
-  // Link to the Artisan providing the service [cite: 549]
-  artisan: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true,
-    ref: 'Artisan',
-  },
-
-  // Description/Details of the request [cite: 552]
-  description: {
-    type: String,
-    required: true,
-  },
-
-  // Date and Time fields from your document 
-  start_date: {
-    type: Date,
-    required: true,
+  artisan: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Artisan', 
+    required: true 
   },
   
-  // Note: end_date is useful for multi-day projects [cite: 549]
-  end_date: {
-    type: Date,
-  },
-
-  // Status as defined in your project requirements 
-  status: {
-    type: String,
+  // NEW: Distinguish between buying vs asking
+  job_type: { 
+    type: String, 
+    enum: ['Order', 'Custom_Request'], 
     required: true,
-    enum: ['New', 'Pending', 'Accepted', 'Rejected', 'Completed'],
-    default: 'New',
+    default: 'Custom_Request'
   },
 
-  // Total price for the service [cite: 549]
-  total_price: {
-    type: Number,
-    default: 0,
-  }
+  // Description of work or item name
+  title: { type: String, required: true }, 
+  description: { type: String }, // Optional details
 
-}, {
-  timestamps: true,
-});
+  // Status Workflow
+  status: { 
+    type: String, 
+    enum: ['Pending', 'Price_Proposed', 'Negotiating', 'Accepted', 'In_Progress', 'Completed', 'Rejected'], 
+    default: 'Pending' 
+  },
+  
+  // Money & Time
+  agreed_price: { type: Number, default: 0 }, 
+  
+  // *** HERE IS THE FIX: We use 'deadline', NOT 'start_date' ***
+  deadline: { type: Date }, 
 
-module.exports = mongoose.model('Reservation', ReservationSchema);
+  // ONLY FOR "ORDER" (Buying from portfolio)
+  quantity: { type: Number, default: 1 }, 
+  reference_image: { type: String }, 
+
+}, { timestamps: true });
+
+module.exports = mongoose.model('Reservation', reservationSchema);

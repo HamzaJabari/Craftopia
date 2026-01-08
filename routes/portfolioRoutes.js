@@ -1,19 +1,12 @@
-// routes/portfolioRoutes.js
 const express = require('express');
 const router = express.Router();
 const PortfolioComment = require('../models/PortfolioCommentModel');
 const Notification = require('../models/NotificationModel');
+const Artisan = require('../models/ArtisanModel');
 const { protectCustomer } = require('../middleware/authMiddleware');
 
 // =======================================================
-// 1. ADD COMMENT TO PORTFOLIO IMAGE
-// Endpoint: POST /api/portfolio/comment
-// =======================================================
-
-const Artisan = require('../models/ArtisanModel'); // <--- Make sure to import Artisan here!
-
-// =======================================================
-// 3. GET ALL IMAGES (For the Gallery Page)
+// 1. GET GALLERY FEED (Public)
 // Endpoint: GET /api/portfolio/feed
 // =======================================================
 router.get('/feed', async (req, res) => {
@@ -29,14 +22,17 @@ router.get('/feed', async (req, res) => {
       {
         $project: {
           _id: 0,
-          imageUrl: "$portfolioImages",
           artisanId: "$_id",
           artisanName: "$name",
-          craftType: "$craftType"
+          craftType: "$craftType",
+          // UPDATED: Access fields inside the object
+          imageUrl: "$portfolioImages.imageUrl",
+          price: "$portfolioImages.price",
+          description: "$portfolioImages.description"
         }
       },
 
-      // 4. (Optional) Randomize the order so it's not always the same users at the top
+      // 4. Randomize the order
       { $sample: { size: 50 } } 
     ]);
 
@@ -45,11 +41,15 @@ router.get('/feed', async (req, res) => {
     res.status(500).json({ message: 'Error fetching feed' });
   }
 });
+
+// =======================================================
+// 2. ADD COMMENT TO PORTFOLIO IMAGE
+// Endpoint: POST /api/portfolio/comment
+// =======================================================
 router.post('/comment', protectCustomer, async (req, res) => {
   try {
     const { artisanId, imageUrl, comment } = req.body;
 
-    // Create the comment
     const newComment = await PortfolioComment.create({
       customer: req.customer._id,
       artisan: artisanId,
@@ -57,7 +57,6 @@ router.post('/comment', protectCustomer, async (req, res) => {
       comment: comment
     });
 
-    // Notify the Artisan
     await Notification.create({
       recipient: artisanId,
       sender: req.customer._id,
@@ -74,8 +73,8 @@ router.post('/comment', protectCustomer, async (req, res) => {
 });
 
 // =======================================================
-// 2. GET COMMENTS FOR AN IMAGE
-// Endpoint: GET /api/portfolio/comments?imageUrl=...
+// 3. GET COMMENTS FOR AN IMAGE
+// Endpoint: GET /api/portfolio/comments
 // =======================================================
 router.get('/comments', async (req, res) => {
   try {
