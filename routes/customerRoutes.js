@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto'); // REQUIRED for password reset
+const crypto = require('crypto'); // <--- REQUIRED for OTP hashing
 const Customer = require('../models/CustomerModel');
 const { protectCustomer } = require('../middleware/authMiddleware');
+const sendEmail = require('../utils/sendEmail'); // <--- REQUIRED for sending email
 
 // =======================================================
 // 1. SIGNUP
@@ -14,22 +15,19 @@ router.post('/signup', async (req, res) => {
   try {
     const { name, email, password, phone_number, location } = req.body;
 
-    // Check if exists
     const customerExists = await Customer.findOne({ email });
     if (customerExists) {
       return res.status(400).json({ message: 'Customer already exists' });
     }
 
-    // Hash Password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create Customer
     const customer = await Customer.create({
       name,
       email,
       password: hashedPassword,
-      phone_number, // Matches your Model exactly
+      phone_number,
       location
     });
 
@@ -84,34 +82,27 @@ router.get('/profile', protectCustomer, async (req, res) => {
 // 4. CHANGE PASSWORD (Logged In)
 // Endpoint: PUT /api/customers/change-password
 // =======================================================
-// =======================================================
-// 4. CHANGE PASSWORD (Fixed)
-// =======================================================
 router.put('/change-password', protectCustomer, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
-
-    // FIX: Re-fetch the customer using the ID from the token.
-    // We do this to ensure we get the 'password' field from the DB.
+    
+    // Re-fetch customer to get the password hash
     const customer = await Customer.findById(req.customer._id);
 
     if (!customer) {
         return res.status(404).json({ message: "Customer not found" });
     }
 
-    // Verify old password
     const isMatch = await bcrypt.compare(oldPassword, customer.password);
     if (!isMatch) {
       return res.status(400).json({ message: 'Old password is incorrect' });
     }
 
-    // Hash new password
     const salt = await bcrypt.genSalt(10);
     customer.password = await bcrypt.hash(newPassword, salt);
 
     await customer.save();
     res.json({ message: 'Password updated successfully' });
-
   } catch (error) {
     console.error("CHANGE PASSWORD ERROR:", error);
     res.status(500).json({ message: 'Server Error' });
@@ -119,7 +110,7 @@ router.put('/change-password', protectCustomer, async (req, res) => {
 });
 
 // =======================================================
-// 5. FORGOT PASSWORD (Logged Out)
+// 5. FORGOT PASSWORD (OTP VERSION)
 // Endpoint: POST /api/customers/forgot-password
 // =======================================================
 router.post('/forgot-password', async (req, res) => {
@@ -131,45 +122,65 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(404).json({ message: 'Email not found' });
     }
 
-    // Generate Token
-    const resetToken = crypto.randomBytes(20).toString('hex');
+    // 1. Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Hash and save to DB
-    customer.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    // 2. Hash and Save
+    customer.resetPasswordToken = crypto.createHash('sha256').update(otp).digest('hex');
     customer.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 Minutes
 
     await customer.save();
 
-    // Return the reset link
-    const resetUrl = `http://localhost:5000/api/customers/reset-password/${resetToken}`;
-    
-    res.json({ message: 'Reset link generated', resetUrl });
+    // 3. Send Email
+    const message = `Your Password Reset Code (OTP) is: \n\n ${otp} \n\nThis code expires in 10 minutes.`;
+
+    try {
+      await sendEmail({
+        email: customer.email,
+        subject: 'Craftopia Password Reset Code',
+        message,
+      });
+
+      res.status(200).json({ message: 'OTP sent to email' });
+
+    } catch (emailError) {
+      customer.resetPasswordToken = undefined;
+      customer.resetPasswordExpire = undefined;
+      await customer.save();
+      return res.status(500).json({ message: 'Email could not be sent' });
+    }
+
   } catch (error) {
+    console.error("FORGOT PASSWORD ERROR:", error);
     res.status(500).json({ message: 'Server Error' });
   }
 });
 
 // =======================================================
-// 6. RESET PASSWORD (Using Token)
-// Endpoint: PUT /api/customers/reset-password/:resetToken
+// 6. RESET PASSWORD (VERIFY OTP)
+// Endpoint: POST /api/customers/reset-password
+// Body: { "email": "...", "otp": "...", "newPassword": "..." }
 // =======================================================
-router.put('/reset-password/:resetToken', async (req, res) => {
+router.post('/reset-password', async (req, res) => {
   try {
-    // Hash token from URL to match DB
-    const resetPasswordToken = crypto.createHash('sha256').update(req.params.resetToken).digest('hex');
+    const { email, otp, newPassword } = req.body;
+
+    // Hash the incoming OTP to compare
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
 
     const customer = await Customer.findOne({
-      resetPasswordToken,
+      email,
+      resetPasswordToken: hashedOtp,
       resetPasswordExpire: { $gt: Date.now() }
     });
 
     if (!customer) {
-      return res.status(400).json({ message: 'Invalid or expired token' });
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
 
     // Set new password
     const salt = await bcrypt.genSalt(10);
-    customer.password = await bcrypt.hash(req.body.password, salt);
+    customer.password = await bcrypt.hash(newPassword, salt);
 
     // Clear reset fields
     customer.resetPasswordToken = undefined;
@@ -178,7 +189,9 @@ router.put('/reset-password/:resetToken', async (req, res) => {
     await customer.save();
 
     res.json({ message: 'Password reset successful' });
+
   } catch (error) {
+    console.error("RESET ERROR:", error);
     res.status(500).json({ message: 'Server Error' });
   }
 });

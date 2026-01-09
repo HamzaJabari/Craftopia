@@ -1,3 +1,4 @@
+const sendEmail = require('../utils/sendEmail');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
@@ -158,6 +159,9 @@ router.put('/change-password', protectArtisan, async (req, res) => {
 // 6. FORGOT PASSWORD (Logged Out)
 // Endpoint: POST /api/artisans/forgot-password
 // =======================================================
+// =======================================================
+// 6. FORGOT PASSWORD (REAL EMAIL VERSION)
+// =======================================================
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
@@ -167,19 +171,38 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(404).json({ message: 'Email not found' });
     }
 
-    // Generate Token
-    const resetToken = crypto.randomBytes(20).toString('hex');
+    // 1. Generate a 6-digit OTP (e.g., "492810")
+    // Math.random() gives 0.xxxxx. * 900000 + 100000 ensures it's always 6 digits.
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Hash and save to DB
-    artisan.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    artisan.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 Minutes
+    // 2. Hash the OTP before saving (Security Best Practice)
+    // We do this so even database admins can't see the codes.
+    artisan.resetPasswordToken = crypto.createHash('sha256').update(otp).digest('hex');
+    
+    // 3. Set Expiration (10 Minutes)
+    artisan.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
 
     await artisan.save();
 
-    // In a real app, send email here. For now, return the link.
-    const resetUrl = `http://localhost:5000/api/artisans/reset-password/${resetToken}`;
-    
-    res.json({ message: 'Reset link generated', resetUrl });
+    // 4. Send the Email with the PLAIN OTP
+    const message = `Your Password Reset Code (OTP) is: \n\n ${otp} \n\nThis code expires in 10 minutes.`;
+
+    try {
+      await sendEmail({
+        email: artisan.email,
+        subject: 'Craftopia Password Reset Code',
+        message,
+      });
+
+      res.status(200).json({ message: 'OTP sent to email' });
+
+    } catch (emailError) {
+      artisan.resetPasswordToken = undefined;
+      artisan.resetPasswordExpire = undefined;
+      await artisan.save();
+      return res.status(500).json({ message: 'Email could not be sent' });
+    }
+
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
   }
@@ -189,32 +212,38 @@ router.post('/forgot-password', async (req, res) => {
 // 7. RESET PASSWORD (Using Token)
 // Endpoint: PUT /api/artisans/reset-password/:resetToken
 // =======================================================
-router.put('/reset-password/:resetToken', async (req, res) => {
+router.post('/reset-password', async (req, res) => {
   try {
-    // Hash token from URL to match DB
-    const resetPasswordToken = crypto.createHash('sha256').update(req.params.resetToken).digest('hex');
+    const { email, otp, newPassword } = req.body;
 
+    // 1. Hash the incoming OTP to match what is in the DB
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+    // 2. Find user by Email AND matching OTP AND not expired
     const artisan = await Artisan.findOne({
-      resetPasswordToken,
+      email,
+      resetPasswordToken: hashedOtp,
       resetPasswordExpire: { $gt: Date.now() }
     });
 
     if (!artisan) {
-      return res.status(400).json({ message: 'Invalid or expired token' });
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
 
-    // Set new password
+    // 3. Set new password
     const salt = await bcrypt.genSalt(10);
-    artisan.password = await bcrypt.hash(req.body.password, salt);
+    artisan.password = await bcrypt.hash(newPassword, salt);
 
-    // Clear reset fields
+    // 4. Clear reset fields
     artisan.resetPasswordToken = undefined;
     artisan.resetPasswordExpire = undefined;
 
     await artisan.save();
 
     res.json({ message: 'Password reset successful' });
+
   } catch (error) {
+    console.error("RESET ERROR:", error);
     res.status(500).json({ message: 'Server Error' });
   }
 });
