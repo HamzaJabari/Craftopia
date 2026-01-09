@@ -31,11 +31,14 @@ const artisanSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+
+    avatar: { type: String, default: "" },
+
     role: {
       type: String,
       default: 'artisan', // Always 'artisan'
     },
-    
+    avatar: { type: String, default: "" },
     // UPDATED: Portfolio now stores Price & Description
     portfolioImages: [
       {

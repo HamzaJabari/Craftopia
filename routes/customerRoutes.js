@@ -6,6 +6,7 @@ const crypto = require('crypto'); // <--- REQUIRED for OTP hashing
 const Customer = require('../models/CustomerModel');
 const { protectCustomer } = require('../middleware/authMiddleware');
 const sendEmail = require('../utils/sendEmail'); // <--- REQUIRED for sending email
+const upload = require('../middleware/uploadMiddleware');
 
 // =======================================================
 // 1. SIGNUP
@@ -224,6 +225,28 @@ router.put('/profile', protectCustomer, async (req, res) => {
       res.status(404).json({ message: 'Customer not found' });
     }
   } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+router.put('/avatar', protectCustomer, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image uploaded' });
+    }
+
+    const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
+
+    const customer = await Customer.findById(req.customer._id);
+    customer.avatar = imagePath;
+    await customer.save();
+
+    res.json({ 
+      message: 'Avatar updated successfully', 
+      avatar: customer.avatar 
+    });
+
+  } catch (error) {
+    console.error("AVATAR UPLOAD ERROR:", error);
     res.status(500).json({ message: 'Server Error' });
   }
 });

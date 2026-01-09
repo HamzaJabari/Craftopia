@@ -318,4 +318,27 @@ router.put('/profile', protectArtisan, async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 });
+router.put('/avatar', protectArtisan, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image uploaded' });
+    }
+
+    // Convert path to URL format (fixes Windows backslashes)
+    const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
+
+    const artisan = await Artisan.findById(req.artisan._id);
+    artisan.avatar = imagePath;
+    await artisan.save();
+
+    res.json({ 
+      message: 'Avatar updated successfully', 
+      avatar: artisan.avatar 
+    });
+
+  } catch (error) {
+    console.error("AVATAR UPLOAD ERROR:", error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
 module.exports = router;
