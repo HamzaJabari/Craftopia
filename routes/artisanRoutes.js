@@ -288,5 +288,34 @@ router.get('/', async (req, res) => {
     res.status(500).json({ message: 'Error fetching artisans' });
   }
 });
+router.put('/profile', protectArtisan, async (req, res) => {
+  try {
+    const artisan = await Artisan.findById(req.artisan._id);
 
+    if (artisan) {
+      // Update fields if they are sent in the body
+      // If req.body.name exists, use it. Otherwise, keep old name.
+      artisan.name = req.body.name || artisan.name;
+      artisan.phone = req.body.phone || artisan.phone; // Note: 'phone' for Artisan
+      artisan.location = req.body.location || artisan.location;
+      artisan.craftType = req.body.craftType || artisan.craftType;
+      artisan.description = req.body.description || artisan.description;
+
+      const updatedArtisan = await artisan.save();
+
+      res.json({
+        _id: updatedArtisan._id,
+        name: updatedArtisan.name,
+        email: updatedArtisan.email,
+        phone: updatedArtisan.phone,
+        role: 'artisan',
+        token: generateToken(updatedArtisan._id) // Optional: Return token again if you want
+      });
+    } else {
+      res.status(404).json({ message: 'Artisan not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
 module.exports = router;

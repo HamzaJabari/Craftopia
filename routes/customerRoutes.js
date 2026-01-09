@@ -200,5 +200,31 @@ router.post('/reset-password', async (req, res) => {
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
+router.put('/profile', protectCustomer, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.customer._id);
 
+    if (customer) {
+      // Update fields if present
+      customer.name = req.body.name || customer.name;
+      customer.phone_number = req.body.phone_number || customer.phone_number; // Note: 'phone_number' for Customer
+      customer.location = req.body.location || customer.location;
+
+      const updatedCustomer = await customer.save();
+
+      res.json({
+        _id: updatedCustomer._id,
+        name: updatedCustomer.name,
+        email: updatedCustomer.email,
+        phone_number: updatedCustomer.phone_number,
+        role: 'customer',
+        token: generateToken(updatedCustomer._id)
+      });
+    } else {
+      res.status(404).json({ message: 'Customer not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
 module.exports = router;
