@@ -28,7 +28,8 @@ const customerSchema = mongoose.Schema(
       type: String,
       default: 'customer', // Always 'customer'
     },
-
+avatar: { type: String, default: "" }, 
+    profilePicture: { type: String, default: "" },
     // NEW: For "Forgot Password" functionality
     resetPasswordToken: String,
     resetPasswordExpire: Date,

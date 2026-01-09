@@ -76,9 +76,17 @@ router.post('/login', async (req, res) => {
 // Endpoint: GET /api/customers/profile
 // =======================================================
 router.get('/profile', protectCustomer, async (req, res) => {
-  res.json(req.customer);
-});
+  // Convert Mongoose document to a plain JavaScript object
+  const customerObj = req.customer.toObject();
 
+  // FORCE 'avatar' to exist. 
+  // If customer has 'profilePicture' but no 'avatar', copy it over.
+  if (!customerObj.avatar && customerObj.profilePicture) {
+    customerObj.avatar = customerObj.profilePicture;
+  }
+
+  res.json(customerObj);
+});
 // =======================================================
 // 4. CHANGE PASSWORD (Logged In)
 // Endpoint: PUT /api/customers/change-password
@@ -237,12 +245,17 @@ router.put('/avatar', protectCustomer, upload.single('image'), async (req, res) 
     const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
 
     const customer = await Customer.findById(req.customer._id);
+    
+    // FIX: Update BOTH fields to keep Frontend happy
     customer.avatar = imagePath;
+    customer.profilePicture = imagePath; 
+    
     await customer.save();
 
     res.json({ 
       message: 'Avatar updated successfully', 
-      avatar: customer.avatar 
+      avatar: customer.avatar,
+      profilePicture: customer.profilePicture 
     });
 
   } catch (error) {
