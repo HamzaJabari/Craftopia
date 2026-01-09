@@ -252,5 +252,41 @@ router.post('/reset-password', async (req, res) => {
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
+router.get('/', async (req, res) => {
+  try {
+    // .find() gets everyone
+    // .select('-password') ensures we DON'T send their passwords
+    // .select('-resetPasswordToken') hides security tokens
+    const artisans = await Artisan.find()
+      .select('-password -resetPasswordToken -resetPasswordExpire');
+      
+    res.json(artisans);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching artisans' });
+  }
+});
+router.get('/', async (req, res) => {
+  try {
+    const { craftType, location } = req.query;
+    let query = {};
+
+    // If user sent ?craftType=Wood, add it to the search
+    if (craftType) {
+      query.craftType = craftType;
+    }
+
+    // If user sent ?location=Hebron, add it to the search
+    if (location) {
+      query.location = location;
+    }
+
+    const artisans = await Artisan.find(query)
+      .select('-password -resetPasswordToken -resetPasswordExpire');
+      
+    res.json(artisans);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching artisans' });
+  }
+});
 
 module.exports = router;
