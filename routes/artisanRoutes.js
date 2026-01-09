@@ -1,46 +1,40 @@
 const express = require('express');
 const router = express.Router();
-const fs = require('fs');
-const path = require('path');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto'); // REQUIRED for password reset
 const Artisan = require('../models/ArtisanModel');
-const generateToken = require('../utils/generateToken');
 const { protectArtisan } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
-
+const upload = require('../middleware/uploadMiddleware'); // Your file uploader
 
 // =======================================================
 // 1. SIGNUP
+// Endpoint: POST /api/artisans/signup
 // =======================================================
 router.post('/signup', async (req, res) => {
   try {
-    // 1. Use the EXACT names your teammate is sending
     const { name, email, password, phone_number, craftType, description, location } = req.body;
 
+    // Check if exists
     const artisanExists = await Artisan.findOne({ email });
     if (artisanExists) {
       return res.status(400).json({ message: 'Artisan already exists' });
     }
 
+    // Hash Password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 2. Create the Artisan
-    // NOTE: We map 'phone_number' (frontend) to 'phone' (database) if needed, 
-    // or just save it as is. 
+    // Create Artisan
     const artisan = await Artisan.create({
       name,
       email,
       password: hashedPassword,
-      
-      // FIX: Your DB might expect 'phone', but frontend sends 'phone_number'.
-      // This line handles BOTH cases safely:
-      phone: phone_number, 
-
+      phone: phone_number, // Map frontend 'phone_number' to DB 'phone'
       craftType,
       description,
       location,
-      portfolioImages: [] // Initialize empty portfolio
+      portfolioImages: []
     });
 
     res.status(201).json({
@@ -54,8 +48,10 @@ router.post('/signup', async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+
 // =======================================================
 // 2. LOGIN
+// Endpoint: POST /api/artisans/login
 // =======================================================
 router.post('/login', async (req, res) => {
   try {
@@ -64,8 +60,10 @@ router.post('/login', async (req, res) => {
 
     if (artisan && (await bcrypt.compare(password, artisan.password))) {
       res.json({
-        _id: artisan._id,
+        _id: artisan.id,
         name: artisan.name,
+        email: artisan.email,
+        phone: artisan.phone,
         role: 'artisan',
         token: generateToken(artisan._id)
       });
@@ -73,93 +71,36 @@ router.post('/login', async (req, res) => {
       res.status(401).json({ message: 'Invalid email or password' });
     }
   } catch (error) {
-    res.status(500).json({ message: 'Login failed' });
+    res.status(500).json({ message: 'Server Error' });
   }
 });
 
 // =======================================================
-// 3. PROFILE DATA (GET & PUT)
+// 3. GET PROFILE
+// Endpoint: GET /api/artisans/profile
 // =======================================================
 router.get('/profile', protectArtisan, async (req, res) => {
-  try {
-    const artisan = await Artisan.findById(req.artisan._id).select('-password');
-    res.json(artisan);
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching profile' });
-  }
-});
-
-router.put('/profile', protectArtisan, async (req, res) => {
-  try {
-    const artisan = await Artisan.findById(req.artisan._id);
-    if (artisan) {
-      artisan.name = req.body.name || artisan.name;
-      artisan.phone_number = req.body.phone_number || artisan.phone_number;
-      artisan.craftType = req.body.craftType || artisan.craftType;
-      artisan.location = req.body.location || artisan.location;
-      artisan.description = req.body.description || artisan.description;
-
-      if (req.body.password) {
-        const salt = await bcrypt.genSalt(10);
-        artisan.password = await bcrypt.hash(req.body.password, salt);
-      }
-
-      const updatedArtisan = await artisan.save();
-      res.json(updatedArtisan);
-    }
-  } catch (error) {
-    res.status(500).json({ message: 'Update failed' });
-  }
+  res.json(req.artisan);
 });
 
 // =======================================================
-// 4. PROFILE PICTURE (Replaces main avatar)
+// 4. UPLOAD PORTFOLIO (Image File + Price)
+// Endpoint: POST /api/artisans/upload-portfolio
 // =======================================================
-router.post('/profile-picture', protectArtisan, upload.single('image'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-
-    const artisan = await Artisan.findById(req.artisan._id);
-    
-    // Delete old file if it exists (to save space)
-    if (artisan.profilePicture && artisan.profilePicture.startsWith('/uploads/')) {
-      const oldPath = path.join(__dirname, '..', artisan.profilePicture);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-    }
-
-    artisan.profilePicture = `/uploads/${req.file.filename}`;
-    await artisan.save();
-
-    res.json({ message: 'Profile picture updated', profilePicture: artisan.profilePicture });
-  } catch (error) {
-    res.status(500).json({ message: 'Upload failed' });
-  }
-});
-
-// =======================================================
-// 5. PORTFOLIO IMAGES (Adds to array)
-// =======================================================
-
-
 router.post('/upload-portfolio', protectArtisan, upload.single('image'), async (req, res) => {
   try {
-    // 1. Check if file was uploaded
     if (!req.file) {
       return res.status(400).json({ message: 'No image file uploaded' });
     }
 
-    // 2. Get the Path (This is the URL we save!)
-    // Windows uses backslashes (\), replace them with forward slashes (/) for URLs
+    // Convert Windows path to URL format if necessary
     const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
-    
-    // 3. Get Price & Desc from Body
     const { price, description } = req.body;
 
     const artisan = req.artisan;
 
-    // 4. Save to DB
     artisan.portfolioImages.push({
-      imageUrl: imagePath,    // <--- The path generated by Multer
+      imageUrl: imagePath,
       price: price || 0,
       description: description || ''
     });
@@ -167,30 +108,120 @@ router.post('/upload-portfolio', protectArtisan, upload.single('image'), async (
     await artisan.save();
 
     res.json({ 
-      message: 'Image uploaded successfully', 
+      message: 'Portfolio updated successfully', 
       portfolio: artisan.portfolioImages 
     });
-
   } catch (error) {
     console.error("UPLOAD ERROR:", error);
     res.status(500).json({ message: 'Upload failed' });
   }
 });
-// =======================================================
-// 6. PUBLIC SEARCH
-// =======================================================
-router.get('/', async (req, res) => {
-  try {
-    const { craftType, location } = req.query;
-    let query = {};
-    if (craftType) query.craftType = craftType;
-    if (location) query.location = { $regex: location, $options: 'i' };
 
-    const artisans = await Artisan.find(query).select('-password');
-    res.json(artisans);
+// =======================================================
+// 5. CHANGE PASSWORD (Logged In)
+// Endpoint: PUT /api/artisans/change-password
+// =======================================================
+// =======================================================
+// 5. CHANGE PASSWORD (Fixed for Artisan)
+// Endpoint: PUT /api/artisans/change-password
+// =======================================================
+router.put('/change-password', protectArtisan, async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+
+    // FIX: Re-fetch the artisan using the ID from the token
+    // so we get the password hash from the database.
+    const artisan = await Artisan.findById(req.artisan._id);
+
+    if (!artisan) {
+        return res.status(404).json({ message: "Artisan not found" });
+    }
+
+    // Verify old password
+    const isMatch = await bcrypt.compare(oldPassword, artisan.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Old password is incorrect' });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    artisan.password = await bcrypt.hash(newPassword, salt);
+
+    await artisan.save();
+    res.json({ message: 'Password updated successfully' });
   } catch (error) {
-    res.status(500).json({ message: 'Search failed' });
+    console.error("CHANGE PASSWORD ERROR:", error);
+    res.status(500).json({ message: 'Server Error' });
   }
 });
+// =======================================================
+// 6. FORGOT PASSWORD (Logged Out)
+// Endpoint: POST /api/artisans/forgot-password
+// =======================================================
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const artisan = await Artisan.findOne({ email });
+
+    if (!artisan) {
+      return res.status(404).json({ message: 'Email not found' });
+    }
+
+    // Generate Token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+
+    // Hash and save to DB
+    artisan.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    artisan.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 Minutes
+
+    await artisan.save();
+
+    // In a real app, send email here. For now, return the link.
+    const resetUrl = `http://localhost:5000/api/artisans/reset-password/${resetToken}`;
+    
+    res.json({ message: 'Reset link generated', resetUrl });
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
+// =======================================================
+// 7. RESET PASSWORD (Using Token)
+// Endpoint: PUT /api/artisans/reset-password/:resetToken
+// =======================================================
+router.put('/reset-password/:resetToken', async (req, res) => {
+  try {
+    // Hash token from URL to match DB
+    const resetPasswordToken = crypto.createHash('sha256').update(req.params.resetToken).digest('hex');
+
+    const artisan = await Artisan.findOne({
+      resetPasswordToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+
+    if (!artisan) {
+      return res.status(400).json({ message: 'Invalid or expired token' });
+    }
+
+    // Set new password
+    const salt = await bcrypt.genSalt(10);
+    artisan.password = await bcrypt.hash(req.body.password, salt);
+
+    // Clear reset fields
+    artisan.resetPasswordToken = undefined;
+    artisan.resetPasswordExpire = undefined;
+
+    await artisan.save();
+
+    res.json({ message: 'Password reset successful' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
+// Helper Function
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+};
 
 module.exports = router;
