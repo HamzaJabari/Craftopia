@@ -441,6 +441,14 @@ router.get('/project/:projectId', async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 });
-
+router.get('/my-portfolio', protectArtisan, async (req, res) => {
+  try {
+    // req.artisan is already loaded by the middleware
+    // We just send back the 'portfolio' array
+    res.json(req.artisan.portfolio);
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
 
 module.exports = router;
