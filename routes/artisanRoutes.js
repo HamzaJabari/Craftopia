@@ -406,4 +406,41 @@ router.delete('/portfolio/:projectId', protectArtisan, async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 });
+// ... (your existing delete route is here) ...
+
+// =======================================================
+// GET SINGLE PROJECT (By ID) <--- ADD THIS NEW PART
+// Endpoint: GET /api/artisans/project/:projectId
+// =======================================================
+router.get('/project/:projectId', async (req, res) => {
+  try {
+    const artisan = await Artisan.findOne(
+      { 'portfolio._id': req.params.projectId },
+      { 'name': 1, 'email': 1, 'phone': 1, 'location': 1, 'avatar': 1, 'portfolio.$': 1 } 
+    );
+
+    if (!artisan || artisan.portfolio.length === 0) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    const project = artisan.portfolio[0];
+
+    res.json({
+      artisan: {
+        _id: artisan._id,
+        name: artisan.name,
+        location: artisan.location,
+        avatar: artisan.avatar,
+        phone: artisan.phone
+      },
+      project: project
+    });
+
+  } catch (error) {
+    console.error("GET PROJECT ERROR:", error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
+
 module.exports = router;
