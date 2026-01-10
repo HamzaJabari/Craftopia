@@ -10,30 +10,36 @@ const { protectCustomer, protectArtisan } = require('../middleware/authMiddlewar
 // =======================================================
 router.post('/', protectCustomer, async (req, res) => {
   try {
-    const { artisanId, projectId, note } = req.body;
+    // 1. Get Quantity from body (default to 1 if not sent)
+    const { artisanId, projectId, note, quantity } = req.body;
+    const qty = quantity ? parseInt(quantity) : 1; 
 
-    // 1. Find the Artisan
     const artisan = await Artisan.findById(artisanId);
     if (!artisan) {
       return res.status(404).json({ message: 'Artisan not found' });
     }
 
-    // 2. Find the specific Project inside the Artisan's portfolio
-    // Mongoose allows searching subdocuments by ID using .id()
     const project = artisan.portfolio.id(projectId);
-
     if (!project) {
-      return res.status(404).json({ message: 'Project not found in artisan portfolio' });
+      return res.status(404).json({ message: 'Project not found' });
     }
 
-    // 3. Create the Order
+    // 2. Calculate Total Price
+    // We use the price from the DATABASE (project.price), never from the frontend.
+    const unitPrice = project.price;
+    const totalPrice = unitPrice * qty;
+
     const order = await Order.create({
       customer: req.customer._id,
       artisan: artisanId,
       projectId: project._id,
       projectTitle: project.title,
       projectImage: project.coverImage || (project.media[0] ? project.media[0].url : ''),
-      price: project.price, // Use the price from the DB, not the user input!
+      
+      quantity: qty,          // Saved
+      unitPrice: unitPrice,   // Saved
+      totalPrice: totalPrice, // Saved
+      
       note: note || ''
     });
 
@@ -44,7 +50,6 @@ router.post('/', protectCustomer, async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 });
-
 // =======================================================
 // GET MY ORDERS (For Customer)
 // Endpoint: GET /api/orders/my-orders
