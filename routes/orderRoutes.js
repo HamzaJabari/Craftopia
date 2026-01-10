@@ -5,58 +5,75 @@ const Artisan = require('../models/ArtisanModel');
 const { protectCustomer, protectArtisan } = require('../middleware/authMiddleware');
 
 // =======================================================
-// CREATE ORDER (Customer Only)
+// CREATE ORDER (Keep this standard / or /create)
+// Endpoint: POST /api/orders
+// =======================================================
+// =======================================================
+// CREATE ORDER (Handles BOTH Custom & Normal)
 // Endpoint: POST /api/orders
 // =======================================================
 router.post('/', protectCustomer, async (req, res) => {
   try {
-    // 1. Get Quantity from body (default to 1 if not sent)
-    const { artisanId, projectId, note, quantity } = req.body;
-    const qty = quantity ? parseInt(quantity) : 1; 
+    const { 
+      artisanId, 
+      projectId, // Optional (Send ONLY for Normal Orders)
+      quantity, 
+      note, 
+      customTitle, // Optional (Send ONLY for Custom Requests)
+      customImage  // Optional (Reference photo link)
+    } = req.body;
 
+    const qty = quantity ? parseInt(quantity) : 1;
     const artisan = await Artisan.findById(artisanId);
-    if (!artisan) {
-      return res.status(404).json({ message: 'Artisan not found' });
-    }
+    
+    if (!artisan) return res.status(404).json({ message: 'Artisan not found' });
 
-    const project = artisan.portfolio.id(projectId);
-    if (!project) {
-      return res.status(404).json({ message: 'Project not found' });
-    }
-
-    // 2. Calculate Total Price
-    // We use the price from the DATABASE (project.price), never from the frontend.
-    const unitPrice = project.price;
-    const totalPrice = unitPrice * qty;
-
-    const order = await Order.create({
+    let newOrderData = {
       customer: req.customer._id,
       artisan: artisanId,
-      projectId: project._id,
-      projectTitle: project.title,
-      projectImage: project.coverImage || (project.media[0] ? project.media[0].url : ''),
-      
-      quantity: qty,          // Saved
-      unitPrice: unitPrice,   // Saved
-      totalPrice: totalPrice, // Saved
-      
-      note: note || ''
-    });
+      quantity: qty,
+      note: note || '',
+      status: 'pending'
+    };
 
+    // --- SCENARIO A: NORMAL ORDER (Project ID provided) ---
+    if (projectId) {
+      const project = artisan.portfolio.id(projectId);
+      if (!project) return res.status(404).json({ message: 'Project not found' });
+
+      newOrderData.type = 'portfolio_order';
+      newOrderData.projectId = project._id;
+      newOrderData.title = project.title;
+      newOrderData.image = project.coverImage;
+      newOrderData.price = project.price;
+      newOrderData.totalPrice = project.price * qty;
+    } 
+    
+    // --- SCENARIO B: CUSTOM REQUEST (No Project ID) ---
+    else {
+      newOrderData.type = 'custom_request';
+      newOrderData.title = customTitle || 'Custom Request';
+      newOrderData.image = customImage || ''; // They might send a reference photo URL
+      newOrderData.price = 0; // Price is decided later by Artisan
+      newOrderData.totalPrice = 0;
+    }
+
+    const order = await Order.create(newOrderData);
     res.status(201).json(order);
 
   } catch (error) {
-    console.error("CREATE ORDER ERROR:", error);
+    console.error("ORDER ERROR:", error);
     res.status(500).json({ message: 'Server Error' });
   }
 });
+
 // =======================================================
-// GET MY ORDERS (For Customer)
-// Endpoint: GET /api/orders/my-orders
+// GET CUSTOMER RESERVATIONS (The "Old" Route Name)
+// Endpoint: GET /api/orders/reservations/customer
 // =======================================================
-router.get('/my-orders', protectCustomer, async (req, res) => {
+router.get('/reservations/customer', protectCustomer, async (req, res) => {
   try {
-    // Populate adds the Artisan's name to the result
+    // This finds the NEW orders but returns them on the OLD route
     const orders = await Order.find({ customer: req.customer._id })
       .populate('artisan', 'name email phone location');
       
@@ -67,12 +84,11 @@ router.get('/my-orders', protectCustomer, async (req, res) => {
 });
 
 // =======================================================
-// GET ARTISAN ORDERS (For Artisan)
-// Endpoint: GET /api/orders/artisan-orders
+// GET ARTISAN RESERVATIONS (Keeping it consistent)
+// Endpoint: GET /api/orders/reservations/artisan
 // =======================================================
-router.get('/artisan-orders', protectArtisan, async (req, res) => {
+router.get('/reservations/artisan', protectArtisan, async (req, res) => {
   try {
-    // Populate adds the Customer's name/phone to the result
     const orders = await Order.find({ artisan: req.artisan._id })
       .populate('customer', 'name email phone_number location');
 
@@ -83,31 +99,18 @@ router.get('/artisan-orders', protectArtisan, async (req, res) => {
 });
 
 // =======================================================
-// UPDATE ORDER STATUS (For Artisan - e.g., Accept/Reject)
-// Endpoint: PUT /api/orders/:id/status
+// GET SINGLE RESERVATION (By ID)
+// Endpoint: GET /api/orders/:id
 // =======================================================
-router.put('/:id/status', protectArtisan, async (req, res) => {
-  try {
-    const { status } = req.body; // e.g. "accepted", "completed"
-    
-    const order = await Order.findById(req.params.id);
-
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
-
-    // Ensure this order actually belongs to this artisan
-    if (order.artisan.toString() !== req.artisan._id.toString()) {
-      return res.status(401).json({ message: 'Not authorized' });
-    }
-
-    order.status = status;
-    await order.save();
-
-    res.json(order);
-  } catch (error) {
-    res.status(500).json({ message: 'Server Error' });
-  }
+router.get('/:id', protectCustomer, async (req, res) => {
+    // ... (Same single order logic as before) ...
+    try {
+        const order = await Order.findById(req.params.id)
+            .populate('artisan', 'name phone')
+            .populate('customer', 'name phone_number');
+        if(!order) return res.status(404).json({message: 'Not Found'});
+        res.json(order);
+    } catch(e) { res.status(500).json({message: 'Server Error'}); }
 });
 
-module.exports = router;
+module.exports = router;    
