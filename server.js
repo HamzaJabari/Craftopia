@@ -13,6 +13,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const availabilityRoutes = require('./routes/availabilityRoutes'); // <--- ADDED THIS
 const portfolioRoutes = require('./routes/portfolioRoutes');
+const orderRoutes = require('./routes/orderRoutes'); // <--- Import
 
 dotenv.config();
 
@@ -37,6 +38,7 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/availability', availabilityRoutes); // <--- ADDED THIS
 app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
+app.use('/api/orders', orderRoutes); // <--- Use
 
 // Default Route
 app.get('/', (req, res) => {
