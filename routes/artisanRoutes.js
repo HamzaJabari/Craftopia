@@ -8,6 +8,7 @@ const Artisan = require('../models/ArtisanModel');
 const { protectArtisan } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware'); // Your file uploader
 
+
 // =======================================================
 // 1. SIGNUP
 // Endpoint: POST /api/artisans/signup
@@ -88,36 +89,73 @@ router.get('/profile', protectArtisan, async (req, res) => {
 // 4. UPLOAD PORTFOLIO (Image File + Price)
 // Endpoint: POST /api/artisans/upload-portfolio
 // =======================================================
-router.post('/upload-portfolio', protectArtisan, upload.single('image'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ message: 'No image file uploaded' });
+// =======================================================
+// 4. UPLOAD PORTFOLIO (Image + Optional Video)
+// Endpoint: POST /api/artisans/upload-portfolio
+// =======================================================
+// =======================================================
+// ADD PROJECT (Gallery: Multiple Photos/Videos)
+// Endpoint: POST /api/artisans/portfolio
+// =======================================================
+// =======================================================
+// ADD PROJECT (With Auto-Cover Photo)
+// Endpoint: POST /api/artisans/portfolio
+// =======================================================
+router.post(
+  '/portfolio', 
+  protectArtisan, 
+  upload.array('files', 10), 
+  async (req, res) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ message: 'Please upload at least one file.' });
+      }
+
+      const { title, description, price, isForSale } = req.body;
+      let coverImage = ""; // Start empty
+
+      // 1. Process files
+      const mediaFiles = req.files.map((file, index) => {
+        const cleanPath = `/${file.path.replace(/\\/g, "/")}`;
+        const type = file.mimetype.startsWith('video') ? 'video' : 'image';
+
+        // LOGIC: If we haven't found a cover image yet, and this is an image, grab it!
+        if (coverImage === "" && type === 'image') {
+          coverImage = cleanPath;
+        }
+
+        return { url: cleanPath, type: type };
+      });
+
+      // Fallback: If they only uploaded videos, use a default placeholder or the video thumbnail
+      if (coverImage === "") {
+        coverImage = "/uploads/default-cover.png"; // Or handle this how you prefer
+      }
+
+      const newProject = {
+        title: title || 'Untitled Project',
+        description: description || '',
+        isForSale: isForSale === 'true',
+        price: price || 0,
+        coverImage: coverImage, // <--- SAVED HERE
+        media: mediaFiles
+      };
+
+      const artisan = req.artisan;
+      artisan.portfolio.push(newProject);
+      await artisan.save();
+
+      res.json({ 
+        message: 'Project added successfully', 
+        portfolio: artisan.portfolio 
+      });
+
+    } catch (error) {
+      console.error("PORTFOLIO ERROR:", error);
+      res.status(500).json({ message: 'Server Error' });
     }
-
-    // Convert Windows path to URL format if necessary
-    const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
-    const { price, description } = req.body;
-
-    const artisan = req.artisan;
-
-    artisan.portfolioImages.push({
-      imageUrl: imagePath,
-      price: price || 0,
-      description: description || ''
-    });
-
-    await artisan.save();
-
-    res.json({ 
-      message: 'Portfolio updated successfully', 
-      portfolio: artisan.portfolioImages 
-    });
-  } catch (error) {
-    console.error("UPLOAD ERROR:", error);
-    res.status(500).json({ message: 'Upload failed' });
   }
-});
-
+);
 // =======================================================
 // 5. CHANGE PASSWORD (Logged In)
 // Endpoint: PUT /api/artisans/change-password
@@ -338,6 +376,33 @@ router.put('/avatar', protectArtisan, upload.single('image'), async (req, res) =
 
   } catch (error) {
     console.error("AVATAR UPLOAD ERROR:", error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+// =======================================================
+// DELETE PROJECT
+// Endpoint: DELETE /api/artisans/portfolio/:projectId
+// =======================================================
+router.delete('/portfolio/:projectId', protectArtisan, async (req, res) => {
+  try {
+    const artisan = req.artisan;
+    const projectId = req.params.projectId;
+
+    // Filter out the project with the matching ID
+    const initialLength = artisan.portfolio.length;
+    artisan.portfolio = artisan.portfolio.filter(
+      (item) => item._id.toString() !== projectId
+    );
+
+    // Check if anything was actually deleted
+    if (artisan.portfolio.length === initialLength) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    await artisan.save();
+    res.json({ message: 'Project deleted successfully', portfolio: artisan.portfolio });
+
+  } catch (error) {
     res.status(500).json({ message: 'Server Error' });
   }
 });
