@@ -23,10 +23,17 @@ const orderSchema = mongoose.Schema(
     quantity: { type: Number, default: 1 },
     price: { type: Number, default: 0 }, // Custom orders might have price 0 initially
     totalPrice: { type: Number, default: 0 },
-    
+    note: { type: String },
+
+    // NEW: The date the customer wants the item by
+    deliveryDate: { 
+      type: Date, 
+      required: true // Let's make it required so Artisans know the deadline
+    },
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'completed', 'cancelled'],
+      // NEW FLOW: pending -> offer_received -> accepted -> completed
+      enum: ['pending', 'offer_received', 'accepted', 'completed', 'cancelled'],
       default: 'pending',
     },
     note: { type: String } // Customer's requirements
