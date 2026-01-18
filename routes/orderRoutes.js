@@ -89,16 +89,20 @@ router.post('/', protectCustomer, async (req, res) => {
 // 2. GET CUSTOMER ORDERS
 // Endpoint: GET /api/orders/customer
 // =======================================================
+// =======================================================
+// 2. GET CUSTOMER ORDERS (With Artisan Details)
+// Endpoint: GET /api/orders/customer
+// =======================================================
 router.get('/customer', protectCustomer, async (req, res) => {
   try {
     const orders = await Order.find({ customer: req.customer._id })
+      .populate('artisan', 'name email phone location') // <--- Add this
       .sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
   }
 });
-
 // =======================================================
 // 3. GET ARTISAN ORDERS
 // Endpoint: GET /api/orders/artisan
@@ -106,13 +110,14 @@ router.get('/customer', protectCustomer, async (req, res) => {
 router.get('/artisan', protectArtisan, async (req, res) => {
   try {
     const orders = await Order.find({ artisan: req.artisan._id })
+      .populate('customer', 'name email phone location avatar') // <--- THIS LINE ADDS THE INFO
       .sort({ createdAt: -1 });
+    
     res.json(orders);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
   }
 });
-
 // =======================================================
 // 4. ARTISAN ACTION: UPDATE STATUS / MAKE OFFER
 // Endpoint: PUT /api/orders/:id/status
