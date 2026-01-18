@@ -31,26 +31,35 @@ const artisanSchema = mongoose.Schema(
       type: String,
       required: true,
     },
-
     avatar: { type: String, default: "" },
-
     role: {
       type: String,
       default: 'artisan', // Always 'artisan'
     },
-    avatar: { type: String, default: "" },
-    // UPDATED: Portfolio now stores Price & Description
-   // ... inside artisanSchema ...
+    
+    // =======================================================
+    // NEW: RATING FIELDS (Added this part)
+    // =======================================================
+    rating: {
+      type: Number,
+      required: true,
+      default: 0
+    },
+    numReviews: {
+      type: Number,
+      required: true,
+      default: 0
+    },
+    // =======================================================
+
+    // Portfolio Structure (Kept exactly as you had it)
     portfolio: [
       {
         title: { type: String, required: true },
         description: { type: String, default: '' },
         isForSale: { type: Boolean, default: false },
         price: { type: Number, default: 0 },
-        
-        // NEW: The main thumbnail for the project
         coverImage: { type: String, default: "" }, 
-
         media: [
           {
             url: { type: String, required: true },
@@ -60,7 +69,8 @@ const artisanSchema = mongoose.Schema(
         createdAt: { type: Date, default: Date.now }
       }
     ],
-    // NEW: For "Forgot Password" functionality
+
+    // Reset Password Logic (Kept as you had it)
     resetPasswordToken: String,
     resetPasswordExpire: Date,
   },
