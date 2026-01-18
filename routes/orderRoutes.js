@@ -110,7 +110,8 @@ router.get('/customer', protectCustomer, async (req, res) => {
 router.get('/artisan', protectArtisan, async (req, res) => {
   try {
     const orders = await Order.find({ artisan: req.artisan._id })
-      .populate('customer', 'name email phone location avatar') // <--- THIS LINE ADDS THE INFO
+      // FIXED: changed 'phone' to 'phone_number'
+      .populate('customer', 'name email phone_number location avatar') 
       .sort({ createdAt: -1 });
     
     res.json(orders);
