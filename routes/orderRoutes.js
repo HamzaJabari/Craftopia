@@ -2,20 +2,13 @@ const express = require('express');
 const router = express.Router();
 const Order = require('../models/OrderModel');
 const Artisan = require('../models/ArtisanModel');
+const Notification = require('../models/NotificationModel');
 const { protectCustomer, protectArtisan } = require('../middleware/authMiddleware');
 
 // =======================================================
-// CREATE ORDER (Keep this standard / or /create)
+// 1. CREATE ORDER (Unified: Portfolio & Custom)
 // Endpoint: POST /api/orders
-// =======================================================
-// =======================================================
-// CREATE ORDER (Handles BOTH Custom & Normal)
-// Endpoint: POST /api/orders
-// =======================================================
-// DEBUG VERSION OF CREATE ORDER
-// =======================================================
-// CREATE ORDER (Unified: Portfolio & Custom)
-// Endpoint: POST /api/orders
+// Access: Customer Only
 // =======================================================
 router.post('/', protectCustomer, async (req, res) => {
   try {
@@ -24,13 +17,13 @@ router.post('/', protectCustomer, async (req, res) => {
       customTitle, customImage, deliveryDate 
     } = req.body;
 
-    // 1. Validate Artisan Exists
+    // A. Validate Artisan
     const artisan = await Artisan.findById(artisanId);
     if (!artisan) {
       return res.status(404).json({ message: 'Artisan not found' });
     }
 
-    // 2. Prepare Basic Order Data
+    // B. Setup Basic Order Data
     const qty = quantity ? parseInt(quantity) : 1;
     let newOrderData = {
       customer: req.customer._id,
@@ -41,8 +34,11 @@ router.post('/', protectCustomer, async (req, res) => {
       status: 'pending'
     };
 
-    // 3. SCENARIO A: NORMAL ORDER (From Portfolio)
+    // C. Determine Type: Portfolio Order OR Custom Request
+    let notificationMessage = '';
+
     if (projectId) {
+      // --- SCENARIO 1: PORTFOLIO ORDER ---
       const project = artisan.portfolio.id(projectId);
       if (!project) return res.status(404).json({ message: 'Project not found' });
 
@@ -52,21 +48,35 @@ router.post('/', protectCustomer, async (req, res) => {
       newOrderData.image = project.coverImage;
       newOrderData.price = project.price;
       newOrderData.totalPrice = project.price * qty;
-    } 
-    // 4. SCENARIO B: CUSTOM REQUEST (Reservation)
-    else {
+
+      notificationMessage = `New Order: ${qty}x ${project.title}`;
+    } else {
+      // --- SCENARIO 2: CUSTOM REQUEST ---
       if (!customTitle) return res.status(400).json({ message: 'Custom title is required.' });
       if (!deliveryDate) return res.status(400).json({ message: 'Delivery date is required.' });
 
       newOrderData.type = 'custom_request';
       newOrderData.title = customTitle;
       newOrderData.image = customImage || '';
-      newOrderData.price = 0; // Price pending
+      newOrderData.price = 0; // Price TBD by Artisan
       newOrderData.totalPrice = 0;
+
+      notificationMessage = `New Custom Request: ${customTitle}`;
     }
 
-    // 5. Save to DB
+    // D. Save Order
     const order = await Order.create(newOrderData);
+
+    // E. Send Notification to Artisan
+    await Notification.create({
+      recipient: artisanId,
+      onModelRecipient: 'Artisan',
+      sender: req.customer._id,
+      onModelSender: 'Customer',
+      message: notificationMessage,
+      type: 'booking'
+    });
+
     res.status(201).json(order);
 
   } catch (error) {
@@ -74,16 +84,15 @@ router.post('/', protectCustomer, async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 });
+
 // =======================================================
-// GET CUSTOMER RESERVATIONS (The "Old" Route Name)
-// Endpoint: GET /api/orders/reservations/customer
+// 2. GET CUSTOMER ORDERS
+// Endpoint: GET /api/orders/customer
 // =======================================================
-router.get('/reservations/customer', protectCustomer, async (req, res) => {
+router.get('/customer', protectCustomer, async (req, res) => {
   try {
-    // This finds the NEW orders but returns them on the OLD route
     const orders = await Order.find({ customer: req.customer._id })
-      .populate('artisan', 'name email phone location');
-      
+      .sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
@@ -91,14 +100,13 @@ router.get('/reservations/customer', protectCustomer, async (req, res) => {
 });
 
 // =======================================================
-// GET ARTISAN RESERVATIONS (Keeping it consistent)
-// Endpoint: GET /api/orders/reservations/artisan
+// 3. GET ARTISAN ORDERS
+// Endpoint: GET /api/orders/artisan
 // =======================================================
-router.get('/reservations/artisan', protectArtisan, async (req, res) => {
+router.get('/artisan', protectArtisan, async (req, res) => {
   try {
     const orders = await Order.find({ artisan: req.artisan._id })
-      .populate('customer', 'name email phone_number location');
-
+      .sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
@@ -106,19 +114,10 @@ router.get('/reservations/artisan', protectArtisan, async (req, res) => {
 });
 
 // =======================================================
-// GET SINGLE RESERVATION (By ID)
-// Endpoint: GET /api/orders/:id
+// 4. ARTISAN ACTION: UPDATE STATUS / MAKE OFFER
+// Endpoint: PUT /api/orders/:id/status
+// Access: Artisan Only
 // =======================================================
-router.get('/:id', protectCustomer, async (req, res) => {
-    // ... (Same single order logic as before) ...
-    try {
-        const order = await Order.findById(req.params.id)
-            .populate('artisan', 'name phone')
-            .populate('customer', 'name phone_number');
-        if(!order) return res.status(404).json({message: 'Not Found'});
-        res.json(order);
-    } catch(e) { res.status(500).json({message: 'Server Error'}); }
-});
 router.put('/:id/status', protectArtisan, async (req, res) => {
   try {
     const { status, price } = req.body;
@@ -129,29 +128,57 @@ router.put('/:id/status', protectArtisan, async (req, res) => {
       return res.status(401).json({ message: 'Not authorized' });
     }
 
-    // SCENARIO 1: Custom Request Logic (Making an Offer)
+    // A. Logic for Custom Request (Making an Offer)
     if (order.type === 'custom_request' && price) {
       order.price = Number(price);
       order.totalPrice = Number(price) * order.quantity;
-      
-      // CRITICAL CHANGE: We don't accept immediately. We mark it as "Offer Received".
       order.status = 'offer_received'; 
     } 
-    // SCENARIO 2: Normal Status Update (e.g., pending -> accepted for normal orders)
+    // B. Logic for Standard Status Update
     else if (status) {
       order.status = status;
     }
 
     await order.save();
+
+    // C. Send Notification to Customer
+    let alertMsg = '';
+    let notifType = 'status_update';
+
+    if (status === 'completed') alertMsg = `Your order '${order.title}' is ready!`;
+    if (status === 'cancelled') alertMsg = `Your order '${order.title}' was cancelled.`;
+    if (order.status === 'offer_received') {
+        alertMsg = `Artisan sent an offer of $${order.price} for '${order.title}'`;
+        notifType = 'system_alert';
+    }
+
+    if (alertMsg) {
+      await Notification.create({
+        recipient: order.customer,
+        onModelRecipient: 'Customer',
+        sender: req.artisan._id,
+        onModelSender: 'Artisan',
+        message: alertMsg,
+        type: notifType
+      });
+    }
+
     res.json(order);
 
   } catch (error) {
+    console.error("Artisan Update Error:", error);
     res.status(500).json({ message: 'Server Error' });
   }
 });
+
+// =======================================================
+// 5. CUSTOMER ACTION: RESPOND TO OFFER
+// Endpoint: PUT /api/orders/:id/customer-response
+// Access: Customer Only
+// =======================================================
 router.put('/:id/customer-response', protectCustomer, async (req, res) => {
   try {
-    const { action, note } = req.body; // action: 'accept', 'reject', 'negotiate'
+    const { action, note } = req.body; // accept, reject, negotiate
     const order = await Order.findById(req.params.id);
 
     if (!order) return res.status(404).json({ message: 'Order not found' });
@@ -163,33 +190,44 @@ router.put('/:id/customer-response', protectCustomer, async (req, res) => {
       return res.status(400).json({ message: 'No pending offer to respond to.' });
     }
 
-    // --- OPTION 1: ACCEPT ---
+    // A. Handle Response
+    let replyMsg = '';
+
     if (action === 'accept') {
       order.status = 'accepted'; 
+      replyMsg = `Customer accepted your price for '${order.title}'!`;
     } 
-    
-    // --- OPTION 2: REJECT ---
     else if (action === 'reject') {
       order.status = 'cancelled'; 
-      if (note) order.note = note; // Optional reason for rejecting
+      replyMsg = `Customer rejected the offer for '${order.title}'.`;
     } 
-    
-    // --- OPTION 3: NEGOTIATE (Send it back to Artisan) ---
     else if (action === 'negotiate') {
-      if (!note) {
-        return res.status(400).json({ message: 'Please add a note explaining your offer.' });
-      }
-      
-      order.status = 'pending'; // Send it back to the Artisan!
-      // We append the customer's feedback to the note so the Artisan sees it
-      order.note = `[Customer Feedback]: ${note} (Previous Note: ${order.note || ''})`;
+      if (!note) return res.status(400).json({ message: 'Note required for negotiation.' });
+      order.status = 'pending'; // Send back to Artisan
+      order.note = `[Customer Feedback]: ${note} (Prev: ${order.note || ''})`;
+      replyMsg = `Customer wants to negotiate on '${order.title}'.`;
     }
 
     await order.save();
+
+    // B. Send Notification to Artisan
+    if (replyMsg) {
+      await Notification.create({
+        recipient: order.artisan,
+        onModelRecipient: 'Artisan',
+        sender: req.customer._id,
+        onModelSender: 'Customer',
+        message: replyMsg,
+        type: 'status_update'
+      });
+    }
+
     res.json(order);
 
   } catch (error) {
+    console.error("Customer Response Error:", error);
     res.status(500).json({ message: 'Server Error' });
   }
 });
-module.exports = router;    
+
+module.exports = router;
