@@ -236,4 +236,52 @@ router.put('/:id/customer-response', protectCustomer, async (req, res) => {
   }
 });
 
+// =======================================================
+// 6. CUSTOMER ACTION: CANCEL ORDER (Before Acceptance)
+// Endpoint: PUT /api/orders/:id/cancel
+// Access: Customer Only
+// =======================================================
+router.put('/:id/cancel', protectCustomer, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+
+    // 1. Check if order exists
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // 2. Check Ownership (Did this customer make the order?)
+    if (order.customer.toString() !== req.customer._id.toString()) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    // 3. Check Status (Rule: Can't cancel if already accepted/working)
+    const nonCancellable = ['accepted', 'completed', 'cancelled'];
+    if (nonCancellable.includes(order.status)) {
+      return res.status(400).json({ 
+        message: 'Cannot cancel. The Artisan has already accepted or completed this order.' 
+      });
+    }
+
+    // 4. Update Status
+    order.status = 'cancelled';
+    await order.save();
+
+    // 5. Notify Artisan (So they know not to work on it)
+    await Notification.create({
+      recipient: order.artisan,
+      onModelRecipient: 'Artisan',
+      sender: req.customer._id,
+      onModelSender: 'Customer',
+      message: `Customer cancelled the request for '${order.title}'.`,
+      type: 'status_update'
+    });
+
+    res.json({ message: 'Order cancelled successfully', order });
+
+  } catch (error) {
+    console.error("Cancel Error:", error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
 module.exports = router;
