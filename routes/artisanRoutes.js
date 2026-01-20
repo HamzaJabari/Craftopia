@@ -7,6 +7,8 @@ const crypto = require('crypto'); // REQUIRED for password reset
 const Artisan = require('../models/ArtisanModel');
 const { protectArtisan } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware'); // Your file uploader
+const Order = require('../models/OrderModel');
+const Review = require('../models/ReviewModel');
 
 
 // =======================================================
@@ -290,19 +292,7 @@ router.post('/reset-password', async (req, res) => {
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
-router.get('/', async (req, res) => {
-  try {
-    // .find() gets everyone
-    // .select('-password') ensures we DON'T send their passwords
-    // .select('-resetPasswordToken') hides security tokens
-    const artisans = await Artisan.find()
-      .select('-password -resetPasswordToken -resetPasswordExpire');
-      
-    res.json(artisans);
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching artisans' });
-  }
-});
+
 router.get('/', async (req, res) => {
   try {
     const { craftType, location } = req.query;
@@ -450,5 +440,102 @@ router.get('/my-portfolio', protectArtisan, async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 });
+const Order = require('../models/OrderModel'); // Make sure this is imported at the top
+const Review = require('../models/ReviewModel'); // Make sure this is imported at the top
 
+router.get('/dashboard/stats', protectArtisan, async (req, res) => {
+  try {
+    const artisanId = req.artisan._id;
+
+    // 1. Get Total Orders Count
+    const totalOrders = await Order.countDocuments({ artisan: artisanId });
+
+    // 2. Get Pending Orders Count
+    const pendingOrders = await Order.countDocuments({ 
+      artisan: artisanId, 
+      status: 'pending' 
+    });
+
+    // 3. Get Completed Orders Count
+    const completedOrders = await Order.countDocuments({ 
+      artisan: artisanId, 
+      status: 'completed' 
+    });
+
+    // 4. Get Reviews Stats (Count & Average)
+    const reviewStats = await Review.aggregate([
+      { $match: { artisan: artisanId } },
+      { 
+        $group: { 
+          _id: null, 
+          count: { $sum: 1 }, 
+          avgRating: { $avg: "$stars_number" } 
+        } 
+      }
+    ]);
+
+    res.json({
+      totalOrders,
+      pendingOrders,
+      completedOrders,
+      totalReviews: reviewStats[0]?.count || 0,
+      averageRating: reviewStats[0]?.avgRating?.toFixed(1) || 0
+    });
+
+  } catch (error) {
+    console.error("Dashboard Stats Error:", error);
+    res.status(500).json({ message: 'Error fetching stats' });
+  }
+});
+// =======================================================
+// GET DASHBOARD STATS (For the Cards)
+// Endpoint: GET /api/artisans/dashboard/stats
+// =======================================================
+const Order = require('../models/OrderModel'); // Make sure this is imported at the top
+const Review = require('../models/ReviewModel'); // Make sure this is imported at the top
+
+router.get('/dashboard/stats', protectArtisan, async (req, res) => {
+  try {
+    const artisanId = req.artisan._id;
+
+    // 1. Get Total Orders Count
+    const totalOrders = await Order.countDocuments({ artisan: artisanId });
+
+    // 2. Get Pending Orders Count
+    const pendingOrders = await Order.countDocuments({ 
+      artisan: artisanId, 
+      status: 'pending' 
+    });
+
+    // 3. Get Completed Orders Count
+    const completedOrders = await Order.countDocuments({ 
+      artisan: artisanId, 
+      status: 'completed' 
+    });
+
+    // 4. Get Reviews Stats (Count & Average)
+    const reviewStats = await Review.aggregate([
+      { $match: { artisan: artisanId } },
+      { 
+        $group: { 
+          _id: null, 
+          count: { $sum: 1 }, 
+          avgRating: { $avg: "$stars_number" } 
+        } 
+      }
+    ]);
+
+    res.json({
+      totalOrders,
+      pendingOrders,
+      completedOrders,
+      totalReviews: reviewStats[0]?.count || 0,
+      averageRating: reviewStats[0]?.avgRating?.toFixed(1) || 0
+    });
+
+  } catch (error) {
+    console.error("Dashboard Stats Error:", error);
+    res.status(500).json({ message: 'Error fetching stats' });
+  }
+});
 module.exports = router;
