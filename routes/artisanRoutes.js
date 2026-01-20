@@ -1,40 +1,45 @@
-const sendEmail = require('../utils/sendEmail');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto'); // REQUIRED for password reset
-const Artisan = require('../models/ArtisanModel');
-const { protectArtisan } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware'); // Your file uploader
-const Order = require('../models/OrderModel');
-const Review = require('../models/ReviewModel');
+const crypto = require('crypto');
+const sendEmail = require('../utils/sendEmail');
 
+// --- Models ---
+const Artisan = require('../models/ArtisanModel');
+const Order = require('../models/OrderModel');   // Moved to top
+const Review = require('../models/ReviewModel'); // Moved to top
+
+// --- Middleware ---
+const { protectArtisan } = require('../middleware/authMiddleware');
+const upload = require('../middleware/uploadMiddleware');
+
+// --- Helper Function ---
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+};
 
 // =======================================================
-// 1. SIGNUP
+// 1. AUTH: SIGNUP
 // Endpoint: POST /api/artisans/signup
 // =======================================================
 router.post('/signup', async (req, res) => {
   try {
     const { name, email, password, phone_number, craftType, description, location } = req.body;
 
-    // Check if exists
     const artisanExists = await Artisan.findOne({ email });
     if (artisanExists) {
       return res.status(400).json({ message: 'Artisan already exists' });
     }
 
-    // Hash Password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create Artisan
     const artisan = await Artisan.create({
       name,
       email,
       password: hashedPassword,
-      phone: phone_number, // Map frontend 'phone_number' to DB 'phone'
+      phone: phone_number,
       craftType,
       description,
       location,
@@ -54,7 +59,7 @@ router.post('/signup', async (req, res) => {
 });
 
 // =======================================================
-// 2. LOGIN
+// 2. AUTH: LOGIN
 // Endpoint: POST /api/artisans/login
 // =======================================================
 router.post('/login', async (req, res) => {
@@ -80,7 +85,7 @@ router.post('/login', async (req, res) => {
 });
 
 // =======================================================
-// 3. GET PROFILE
+// 3. PROFILE: GET PROFILE
 // Endpoint: GET /api/artisans/profile
 // =======================================================
 router.get('/profile', protectArtisan, async (req, res) => {
@@ -88,243 +93,16 @@ router.get('/profile', protectArtisan, async (req, res) => {
 });
 
 // =======================================================
-// 4. UPLOAD PORTFOLIO (Image File + Price)
-// Endpoint: POST /api/artisans/upload-portfolio
+// 4. PROFILE: UPDATE PROFILE
+// Endpoint: PUT /api/artisans/profile
 // =======================================================
-// =======================================================
-// 4. UPLOAD PORTFOLIO (Image + Optional Video)
-// Endpoint: POST /api/artisans/upload-portfolio
-// =======================================================
-// =======================================================
-// ADD PROJECT (Gallery: Multiple Photos/Videos)
-// Endpoint: POST /api/artisans/portfolio
-// =======================================================
-// =======================================================
-// ADD PROJECT (With Auto-Cover Photo)
-// Endpoint: POST /api/artisans/portfolio
-// =======================================================
-router.post(
-  '/portfolio', 
-  protectArtisan, 
-  upload.array('files', 10), 
-  async (req, res) => {
-    try {
-      if (!req.files || req.files.length === 0) {
-        return res.status(400).json({ message: 'Please upload at least one file.' });
-      }
-
-      const { title, description, price, isForSale } = req.body;
-      let coverImage = ""; // Start empty
-
-      // 1. Process files
-      const mediaFiles = req.files.map((file, index) => {
-        const cleanPath = `/${file.path.replace(/\\/g, "/")}`;
-        const type = file.mimetype.startsWith('video') ? 'video' : 'image';
-
-        // LOGIC: If we haven't found a cover image yet, and this is an image, grab it!
-        if (coverImage === "" && type === 'image') {
-          coverImage = cleanPath;
-        }
-
-        return { url: cleanPath, type: type };
-      });
-
-      // Fallback: If they only uploaded videos, use a default placeholder or the video thumbnail
-      if (coverImage === "") {
-        coverImage = "/uploads/default-cover.png"; // Or handle this how you prefer
-      }
-
-      const newProject = {
-        title: title || 'Untitled Project',
-        description: description || '',
-        isForSale: isForSale === 'true',
-        price: price || 0,
-        coverImage: coverImage, // <--- SAVED HERE
-        media: mediaFiles
-      };
-
-      const artisan = req.artisan;
-      artisan.portfolio.push(newProject);
-      await artisan.save();
-
-      res.json({ 
-        message: 'Project added successfully', 
-        portfolio: artisan.portfolio 
-      });
-
-    } catch (error) {
-      console.error("PORTFOLIO ERROR:", error);
-      res.status(500).json({ message: 'Server Error' });
-    }
-  }
-);
-// =======================================================
-// 5. CHANGE PASSWORD (Logged In)
-// Endpoint: PUT /api/artisans/change-password
-// =======================================================
-// =======================================================
-// 5. CHANGE PASSWORD (Fixed for Artisan)
-// Endpoint: PUT /api/artisans/change-password
-// =======================================================
-router.put('/change-password', protectArtisan, async (req, res) => {
-  try {
-    const { oldPassword, newPassword } = req.body;
-
-    // FIX: Re-fetch the artisan using the ID from the token
-    // so we get the password hash from the database.
-    const artisan = await Artisan.findById(req.artisan._id);
-
-    if (!artisan) {
-        return res.status(404).json({ message: "Artisan not found" });
-    }
-
-    // Verify old password
-    const isMatch = await bcrypt.compare(oldPassword, artisan.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Old password is incorrect' });
-    }
-
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    artisan.password = await bcrypt.hash(newPassword, salt);
-
-    await artisan.save();
-    res.json({ message: 'Password updated successfully' });
-  } catch (error) {
-    console.error("CHANGE PASSWORD ERROR:", error);
-    res.status(500).json({ message: 'Server Error' });
-  }
-});
-// =======================================================
-// 6. FORGOT PASSWORD (Logged Out)
-// Endpoint: POST /api/artisans/forgot-password
-// =======================================================
-// =======================================================
-// 6. FORGOT PASSWORD (REAL EMAIL VERSION)
-// =======================================================
-router.post('/forgot-password', async (req, res) => {
-  try {
-    const { email } = req.body;
-    const artisan = await Artisan.findOne({ email });
-
-    if (!artisan) {
-      return res.status(404).json({ message: 'Email not found' });
-    }
-
-    // 1. Generate a 6-digit OTP (e.g., "492810")
-    // Math.random() gives 0.xxxxx. * 900000 + 100000 ensures it's always 6 digits.
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // 2. Hash the OTP before saving (Security Best Practice)
-    // We do this so even database admins can't see the codes.
-    artisan.resetPasswordToken = crypto.createHash('sha256').update(otp).digest('hex');
-    
-    // 3. Set Expiration (10 Minutes)
-    artisan.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
-
-    await artisan.save();
-
-    // 4. Send the Email with the PLAIN OTP
-    const message = `Your Password Reset Code (OTP) is: \n\n ${otp} \n\nThis code expires in 10 minutes.`;
-
-    try {
-      await sendEmail({
-        email: artisan.email,
-        subject: 'Craftopia Password Reset Code',
-        message,
-      });
-
-      res.status(200).json({ message: 'OTP sent to email' });
-
-    } catch (emailError) {
-      artisan.resetPasswordToken = undefined;
-      artisan.resetPasswordExpire = undefined;
-      await artisan.save();
-      return res.status(500).json({ message: 'Email could not be sent' });
-    }
-
-  } catch (error) {
-    res.status(500).json({ message: 'Server Error' });
-  }
-});
-
-// =======================================================
-// 7. RESET PASSWORD (Using Token)
-// Endpoint: PUT /api/artisans/reset-password/:resetToken
-// =======================================================
-router.post('/reset-password', async (req, res) => {
-  try {
-    const { email, otp, newPassword } = req.body;
-
-    // 1. Hash the incoming OTP to match what is in the DB
-    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
-
-    // 2. Find user by Email AND matching OTP AND not expired
-    const artisan = await Artisan.findOne({
-      email,
-      resetPasswordToken: hashedOtp,
-      resetPasswordExpire: { $gt: Date.now() }
-    });
-
-    if (!artisan) {
-      return res.status(400).json({ message: 'Invalid or expired OTP' });
-    }
-
-    // 3. Set new password
-    const salt = await bcrypt.genSalt(10);
-    artisan.password = await bcrypt.hash(newPassword, salt);
-
-    // 4. Clear reset fields
-    artisan.resetPasswordToken = undefined;
-    artisan.resetPasswordExpire = undefined;
-
-    await artisan.save();
-
-    res.json({ message: 'Password reset successful' });
-
-  } catch (error) {
-    console.error("RESET ERROR:", error);
-    res.status(500).json({ message: 'Server Error' });
-  }
-});
-
-// Helper Function
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
-};
-
-router.get('/', async (req, res) => {
-  try {
-    const { craftType, location } = req.query;
-    let query = {};
-
-    // If user sent ?craftType=Wood, add it to the search
-    if (craftType) {
-      query.craftType = craftType;
-    }
-
-    // If user sent ?location=Hebron, add it to the search
-    if (location) {
-      query.location = location;
-    }
-
-    const artisans = await Artisan.find(query)
-      .select('-password -resetPasswordToken -resetPasswordExpire');
-      
-    res.json(artisans);
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching artisans' });
-  }
-});
 router.put('/profile', protectArtisan, async (req, res) => {
   try {
     const artisan = await Artisan.findById(req.artisan._id);
 
     if (artisan) {
-      // Update fields if they are sent in the body
-      // If req.body.name exists, use it. Otherwise, keep old name.
       artisan.name = req.body.name || artisan.name;
-      artisan.phone = req.body.phone || artisan.phone; // Note: 'phone' for Artisan
+      artisan.phone = req.body.phone || artisan.phone;
       artisan.location = req.body.location || artisan.location;
       artisan.craftType = req.body.craftType || artisan.craftType;
       artisan.description = req.body.description || artisan.description;
@@ -337,7 +115,7 @@ router.put('/profile', protectArtisan, async (req, res) => {
         email: updatedArtisan.email,
         phone: updatedArtisan.phone,
         role: 'artisan',
-        token: generateToken(updatedArtisan._id) // Optional: Return token again if you want
+        token: generateToken(updatedArtisan._id)
       });
     } else {
       res.status(404).json({ message: 'Artisan not found' });
@@ -346,15 +124,18 @@ router.put('/profile', protectArtisan, async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 });
+
+// =======================================================
+// 5. PROFILE: UPDATE AVATAR
+// Endpoint: PUT /api/artisans/avatar
+// =======================================================
 router.put('/avatar', protectArtisan, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No image uploaded' });
     }
 
-    // Convert path to URL format (fixes Windows backslashes)
     const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
-
     const artisan = await Artisan.findById(req.artisan._id);
     artisan.avatar = imagePath;
     await artisan.save();
@@ -369,37 +150,164 @@ router.put('/avatar', protectArtisan, upload.single('image'), async (req, res) =
     res.status(500).json({ message: 'Server Error' });
   }
 });
+
 // =======================================================
-// DELETE PROJECT
-// Endpoint: DELETE /api/artisans/portfolio/:projectId
+// 6. SECURITY: CHANGE PASSWORD
+// Endpoint: PUT /api/artisans/change-password
 // =======================================================
-router.delete('/portfolio/:projectId', protectArtisan, async (req, res) => {
+router.put('/change-password', protectArtisan, async (req, res) => {
   try {
-    const artisan = req.artisan;
-    const projectId = req.params.projectId;
+    const { oldPassword, newPassword } = req.body;
+    const artisan = await Artisan.findById(req.artisan._id);
 
-    // Filter out the project with the matching ID
-    const initialLength = artisan.portfolio.length;
-    artisan.portfolio = artisan.portfolio.filter(
-      (item) => item._id.toString() !== projectId
-    );
+    if (!artisan) return res.status(404).json({ message: "Artisan not found" });
 
-    // Check if anything was actually deleted
-    if (artisan.portfolio.length === initialLength) {
-      return res.status(404).json({ message: 'Project not found' });
-    }
+    const isMatch = await bcrypt.compare(oldPassword, artisan.password);
+    if (!isMatch) return res.status(400).json({ message: 'Old password is incorrect' });
+
+    const salt = await bcrypt.genSalt(10);
+    artisan.password = await bcrypt.hash(newPassword, salt);
 
     await artisan.save();
-    res.json({ message: 'Project deleted successfully', portfolio: artisan.portfolio });
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error("CHANGE PASSWORD ERROR:", error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
 
+// =======================================================
+// 7. SECURITY: FORGOT PASSWORD
+// Endpoint: POST /api/artisans/forgot-password
+// =======================================================
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const artisan = await Artisan.findOne({ email });
+
+    if (!artisan) return res.status(404).json({ message: 'Email not found' });
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    artisan.resetPasswordToken = crypto.createHash('sha256').update(otp).digest('hex');
+    artisan.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+
+    await artisan.save();
+
+    const message = `Your Password Reset Code (OTP) is: \n\n ${otp} \n\nThis code expires in 10 minutes.`;
+
+    try {
+      await sendEmail({
+        email: artisan.email,
+        subject: 'Craftopia Password Reset Code',
+        message,
+      });
+      res.status(200).json({ message: 'OTP sent to email' });
+    } catch (emailError) {
+      artisan.resetPasswordToken = undefined;
+      artisan.resetPasswordExpire = undefined;
+      await artisan.save();
+      return res.status(500).json({ message: 'Email could not be sent' });
+    }
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
   }
 });
-// ... (your existing delete route is here) ...
 
 // =======================================================
-// GET SINGLE PROJECT (By ID) <--- ADD THIS NEW PART
+// 8. SECURITY: RESET PASSWORD
+// Endpoint: POST /api/artisans/reset-password
+// =======================================================
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+    const artisan = await Artisan.findOne({
+      email,
+      resetPasswordToken: hashedOtp,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+
+    if (!artisan) return res.status(400).json({ message: 'Invalid or expired OTP' });
+
+    const salt = await bcrypt.genSalt(10);
+    artisan.password = await bcrypt.hash(newPassword, salt);
+    artisan.resetPasswordToken = undefined;
+    artisan.resetPasswordExpire = undefined;
+
+    await artisan.save();
+    res.json({ message: 'Password reset successful' });
+
+  } catch (error) {
+    console.error("RESET ERROR:", error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
+// =======================================================
+// 9. PORTFOLIO: ADD PROJECT
+// Endpoint: POST /api/artisans/portfolio
+// =======================================================
+router.post('/portfolio', protectArtisan, upload.array('files', 10), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: 'Please upload at least one file.' });
+    }
+
+    const { title, description, price, isForSale } = req.body;
+    let coverImage = "";
+
+    const mediaFiles = req.files.map((file) => {
+      const cleanPath = `/${file.path.replace(/\\/g, "/")}`;
+      const type = file.mimetype.startsWith('video') ? 'video' : 'image';
+      
+      if (coverImage === "" && type === 'image') {
+        coverImage = cleanPath;
+      }
+      return { url: cleanPath, type: type };
+    });
+
+    if (coverImage === "") coverImage = "/uploads/default-cover.png";
+
+    const newProject = {
+      title: title || 'Untitled Project',
+      description: description || '',
+      isForSale: isForSale === 'true',
+      price: price || 0,
+      coverImage: coverImage,
+      media: mediaFiles
+    };
+
+    const artisan = req.artisan;
+    artisan.portfolio.push(newProject);
+    await artisan.save();
+
+    res.json({ 
+      message: 'Project added successfully', 
+      portfolio: artisan.portfolio 
+    });
+
+  } catch (error) {
+    console.error("PORTFOLIO ERROR:", error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
+// =======================================================
+// 10. PORTFOLIO: GET MY PORTFOLIO
+// Endpoint: GET /api/artisans/my-portfolio
+// =======================================================
+router.get('/my-portfolio', protectArtisan, async (req, res) => {
+  try {
+    res.json(req.artisan.portfolio);
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
+// =======================================================
+// 11. PORTFOLIO: GET SINGLE PROJECT (Public)
 // Endpoint: GET /api/artisans/project/:projectId
 // =======================================================
 router.get('/project/:projectId', async (req, res) => {
@@ -414,7 +322,6 @@ router.get('/project/:projectId', async (req, res) => {
     }
 
     const project = artisan.portfolio[0];
-
     res.json({
       artisan: {
         _id: artisan._id,
@@ -431,69 +338,37 @@ router.get('/project/:projectId', async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 });
-router.get('/my-portfolio', protectArtisan, async (req, res) => {
+
+// =======================================================
+// 12. PORTFOLIO: DELETE PROJECT
+// Endpoint: DELETE /api/artisans/portfolio/:projectId
+// =======================================================
+router.delete('/portfolio/:projectId', protectArtisan, async (req, res) => {
   try {
-    // req.artisan is already loaded by the middleware
-    // We just send back the 'portfolio' array
-    res.json(req.artisan.portfolio);
+    const artisan = req.artisan;
+    const projectId = req.params.projectId;
+
+    const initialLength = artisan.portfolio.length;
+    artisan.portfolio = artisan.portfolio.filter(
+      (item) => item._id.toString() !== projectId
+    );
+
+    if (artisan.portfolio.length === initialLength) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    await artisan.save();
+    res.json({ message: 'Project deleted successfully', portfolio: artisan.portfolio });
+
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
   }
 });
-const Order = require('../models/OrderModel'); // Make sure this is imported at the top
-const Review = require('../models/ReviewModel'); // Make sure this is imported at the top
 
-router.get('/dashboard/stats', protectArtisan, async (req, res) => {
-  try {
-    const artisanId = req.artisan._id;
-
-    // 1. Get Total Orders Count
-    const totalOrders = await Order.countDocuments({ artisan: artisanId });
-
-    // 2. Get Pending Orders Count
-    const pendingOrders = await Order.countDocuments({ 
-      artisan: artisanId, 
-      status: 'pending' 
-    });
-
-    // 3. Get Completed Orders Count
-    const completedOrders = await Order.countDocuments({ 
-      artisan: artisanId, 
-      status: 'completed' 
-    });
-
-    // 4. Get Reviews Stats (Count & Average)
-    const reviewStats = await Review.aggregate([
-      { $match: { artisan: artisanId } },
-      { 
-        $group: { 
-          _id: null, 
-          count: { $sum: 1 }, 
-          avgRating: { $avg: "$stars_number" } 
-        } 
-      }
-    ]);
-
-    res.json({
-      totalOrders,
-      pendingOrders,
-      completedOrders,
-      totalReviews: reviewStats[0]?.count || 0,
-      averageRating: reviewStats[0]?.avgRating?.toFixed(1) || 0
-    });
-
-  } catch (error) {
-    console.error("Dashboard Stats Error:", error);
-    res.status(500).json({ message: 'Error fetching stats' });
-  }
-});
 // =======================================================
-// GET DASHBOARD STATS (For the Cards)
+// 13. DASHBOARD: GET STATS (New!)
 // Endpoint: GET /api/artisans/dashboard/stats
 // =======================================================
-const Order = require('../models/OrderModel'); // Make sure this is imported at the top
-const Review = require('../models/ReviewModel'); // Make sure this is imported at the top
-
 router.get('/dashboard/stats', protectArtisan, async (req, res) => {
   try {
     const artisanId = req.artisan._id;
@@ -513,7 +388,7 @@ router.get('/dashboard/stats', protectArtisan, async (req, res) => {
       status: 'completed' 
     });
 
-    // 4. Get Reviews Stats (Count & Average)
+    // 4. Get Reviews Stats
     const reviewStats = await Review.aggregate([
       { $match: { artisan: artisanId } },
       { 
@@ -538,4 +413,31 @@ router.get('/dashboard/stats', protectArtisan, async (req, res) => {
     res.status(500).json({ message: 'Error fetching stats' });
   }
 });
+
+// =======================================================
+// 14. SEARCH: GET ALL ARTISANS (With Filtering)
+// Endpoint: GET /api/artisans?craftType=Wood&location=Hebron
+// =======================================================
+router.get('/', async (req, res) => {
+  try {
+    const { craftType, location } = req.query;
+    let query = {};
+
+    if (craftType) {
+      query.craftType = craftType;
+    }
+
+    if (location) {
+      query.location = location;
+    }
+
+    const artisans = await Artisan.find(query)
+      .select('-password -resetPasswordToken -resetPasswordExpire');
+      
+    res.json(artisans);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching artisans' });
+  }
+});
+
 module.exports = router;
