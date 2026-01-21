@@ -36,5 +36,28 @@ router.get('/:artisanId', async (req, res) => {
     res.status(500).json({ message: 'Error fetching schedule' });
   }
 });
+router.delete('/:id', protectArtisan, async (req, res) => {
+  try {
+    // 1. Find the availability record
+    const availability = await Availability.findById(req.params.id);
 
+    if (!availability) {
+      return res.status(404).json({ message: 'Availability not found' });
+    }
+
+    // 2. Security Check: Ensure this day belongs to the logged-in Artisan
+    if (availability.artisan.toString() !== req.artisan._id.toString()) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    // 3. Delete it
+    await Availability.findByIdAndDelete(req.params.id);
+    
+    res.json({ message: 'Availability removed successfully' });
+
+  } catch (error) {
+    console.error("Delete Availability Error:", error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
 module.exports = router;
